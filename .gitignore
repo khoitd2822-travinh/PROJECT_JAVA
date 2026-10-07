@@ -1,19 +1,69 @@
+# ==========================================
+# Environment & Secrets
+# ==========================================
 .env
-.idea/
-*.iml
-.vscode/
+*.env.*
+
+# ==========================================
+# Java / Spring Boot / Maven / Gradle
+# ==========================================
 target/
+build/
+.mvn/wrapper/maven-wrapper.jar
+HELP.md
+
+# ==========================================
+# IDEs & Editors
+# ==========================================
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# VS Code
+.vscode/
+
+# Eclipse / STS / NetBeans
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# ==========================================
+# Node.js / Next.js / Frontend
+# ==========================================
 node_modules/
 .next/
+
+# ==========================================
+# Python / AI / Machine Learning
+# ==========================================
 __pycache__/
 .venv/
-.pio/
 *.pt
 *.onnx
-*.mp4
 ai/data/*
 !ai/data/.gitkeep
 ai/models/*
 !ai/models/.gitkeep
+
+# ==========================================
+# Firmware / PlatformIO
+# ==========================================
+.pio/
+
+# ==========================================
+# System & Media Files
+# ==========================================
 .DS_Store
 Thumbs.db
+*.mp4
