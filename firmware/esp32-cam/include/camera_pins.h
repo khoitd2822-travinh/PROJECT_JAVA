@@ -1,10 +1,5 @@
 #pragma once
 
-/**
- * AI-Thinker ESP32-CAM Pin Configuration
- * Omnivision OV2640 Camera Module
- */
-
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -23,5 +18,4 @@
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// Onboard Flash LED for illumination / night vision
 #define FLASH_LED_PIN      4
