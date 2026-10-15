@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "author": "Thanh Liem (TV2) - SwiftletCare",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht", "top": -160, "left": 180, "attrs": { "temperature": "28.5", "humidity": "78" } },
+    { "type": "wokwi-potentiometer", "id": "pot_ldr", "top": -160, "left": -180, "attrs": { "label": "LDR (Light)" } },
+    { "type": "wokwi-potentiometer", "id": "pot_mq135", "top": -40, "left": -180, "attrs": { "label": "MQ-135 (CO2)" } },
+    { "type": "wokwi-potentiometer", "id": "pot_sound", "top": 80, "left": -180, "attrs": { "label": "Sound (Mic)" } },
+    { "type": "wokwi-relay-module", "id": "relay_mist", "top": -80, "left": 280, "attrs": { "label": "Relay 1: Mist" } },
+    { "type": "wokwi-relay-module", "id": "relay_fan", "top": 50, "left": 280, "attrs": { "label": "Relay 2: Fan" } },
+    { "type": "wokwi-relay-module", "id": "relay_heat", "top": 180, "left": 280, "attrs": { "label": "Relay 3: Heat" } },
+    { "type": "wokwi-led", "id": "led_status", "top": 240, "left": 60, "attrs": { "color": "yellow", "label": "Status LED" } },
+    { "type": "wokwi-buzzer", "id": "buzzer", "top": 240, "left": -40, "attrs": { "label": "Buzzer" } },
+    { "type": "wokwi-resistor", "id": "r_status", "top": 220, "left": 60, "attrs": { "value": "220" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:3V3", "dht:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "dht:GND", "black", [ "v0" ] ],
+    [ "esp:21", "dht:SDA", "green", [ "v0" ] ],
+    [ "esp:22", "dht:SCL", "blue", [ "v0" ] ],
+
+    [ "esp:3V3", "pot_ldr:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "pot_ldr:GND", "black", [ "v0" ] ],
+    [ "pot_ldr:SIG", "esp:34", "orange", [ "v0" ] ],
+
+    [ "esp:3V3", "pot_mq135:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "pot_mq135:GND", "black", [ "v0" ] ],
+    [ "pot_mq135:SIG", "esp:35", "purple", [ "v0" ] ],
+
+    [ "esp:3V3", "pot_sound:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "pot_sound:GND", "black", [ "v0" ] ],
+    [ "pot_sound:SIG", "esp:36", "brown", [ "v0" ] ],
+
+    [ "esp:5V", "relay_mist:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.2", "relay_mist:GND", "black", [ "v0" ] ],
+    [ "esp:25", "relay_mist:IN", "cyan", [ "v0" ] ],
+
+    [ "esp:5V", "relay_fan:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.2", "relay_fan:GND", "black", [ "v0" ] ],
+    [ "esp:26", "relay_fan:IN", "cyan", [ "v0" ] ],
+
+    [ "esp:5V", "relay_heat:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.2", "relay_heat:GND", "black", [ "v0" ] ],
+    [ "esp:27", "relay_heat:IN", "cyan", [ "v0" ] ],
+
+    [ "esp:14", "r_status:1", "yellow", [ "v0" ] ],
+    [ "r_status:2", "led_status:A", "yellow", [ "v0" ] ],
+    [ "led_status:C", "esp:GND.2", "black", [ "v0" ] ],
+
+    [ "esp:14", "buzzer:2", "yellow", [ "v0" ] ],
+    [ "buzzer:1", "esp:GND.2", "black", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
