@@ -325,7 +325,14 @@ void setup() {
     mqttClient.setCallback(handleIncomingCommand);
     mqttClient.setBufferSize(512);
 
-    esp_task_wdt_init(WATCHDOG_TIMEOUT_SEC, true);
+    // Task Watchdog - API Arduino core 3.x (esp-idf 5.x)
+    // API cu: esp_task_wdt_init(timeout_sec, panic) -> da bi xoa
+    // API moi: esp_task_wdt_init(const esp_task_wdt_config_t *config)
+    esp_task_wdt_config_t wdtConfig;
+    wdtConfig.timeout_ms = WATCHDOG_TIMEOUT_SEC * 1000;
+    wdtConfig.idle_core_mask = 0;          // chi theo doi task cua app, khong theo doi idle
+    wdtConfig.trigger_panic = true;
+    esp_task_wdt_init(&wdtConfig);
     esp_task_wdt_add(NULL);
 }
 
