@@ -35,9 +35,9 @@ mqtt:
   client-id: swiftletcare_backend_consumer
   tenant: thanhliem
   topic:
-    telemetry: swiftlet/thanhliem/+/+/telemetry
-    detection: swiftlet/thanhliem/#/detection
-    status: swiftlet/thanhliem/+/+/status
+    telemetry: swiftlet/thanhliem/+/+/+/telemetry
+    detection: swiftlet/thanhliem/+/+/+/detection
+    status: swiftlet/thanhliem/+/+/+/status
 
 # 5. Cấu hình S3 Storage (Zenko Cloudserver)
 s3:

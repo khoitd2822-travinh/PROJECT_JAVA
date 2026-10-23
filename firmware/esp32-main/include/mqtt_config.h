@@ -47,7 +47,7 @@
 #define FARM_ID 1L
 #define ZONE_ID 1L
 
-// ---- Topic base: swiftlet/<tenant>/<farm>/<zone>/<device> ----
+// ---- Topic base: swiftlet/<tenant>/<farm>/<zone>/<device>/<loai> ----
 #define TOPIC_PREFIX "swiftlet/" MQTT_TENANT "/" "1/" "1/" DEVICE_ID
 
 #define TOPIC_TELEMETRY TOPIC_PREFIX "/telemetry"
@@ -57,8 +57,9 @@
 #define TOPIC_STATUS    TOPIC_PREFIX "/status"
 
 // Topic rieng cho tung thiet bi (KHONG dung broadcast)
-#define TOPIC_TELEMETRY_FARM "swiftlet/" MQTT_TENANT "/1/1/+"
-#define TOPIC_COMMAND_FARM   "swiftlet/" MQTT_TENANT "/+/+/command"
+// Luu y: 6 doan - swiftlet/<tenant>/<farm>/<zone>/<device>/<loai>
+#define TOPIC_TELEMETRY_FARM "swiftlet/" MQTT_TENANT "/+/+/+/telemetry"
+#define TOPIC_COMMAND_FARM   "swiftlet/" MQTT_TENANT "/+/+/+/command"
 
 // ---- Client ID (phai duy nhat de broker khong kick nhau) ----
 #define MQTT_CLIENT_ID MQTT_TENANT "_" DEVICE_ID

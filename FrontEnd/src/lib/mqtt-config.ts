@@ -16,12 +16,13 @@ export const MQTT_BROKER_URL =
     : 'wss://broker.emqx.io:8084/mqtt';
 
 // Topic nhận telemetry từ ESP32.
-// Dấu + = farmId, + = zoneId, + = deviceId -> nghe MỌI thiết bị trong tenant.
+// Cấu trúc: swiftlet/<tenant>/<farmId>/<zoneId>/<deviceId>/telemetry  -> 6 doan
+// Dấu + thay cho farmId, zoneId, deviceId -> nghe MỌI thiết bị trong tenant.
 // ESP32 phát: swiftlet/thanhliem/1/1/ESP32_MAIN_01/telemetry
-export const TOPIC_TELEMETRY = `swiftlet/${MQTT_TENANT}/+/+/telemetry`;
+export const TOPIC_TELEMETRY = `swiftlet/${MQTT_TENANT}/+/+/+/telemetry`;
 
 // Topic trạng thái online/offline (retained)
-export const TOPIC_STATUS = `swiftlet/${MQTT_TENANT}/+/+/status`;
+export const TOPIC_STATUS = `swiftlet/${MQTT_TENANT}/+/+/+/status`;
 
 // Topic GỬI LỆNH điều khiển relay.
 // Mỗi thiết bị có topic riêng - KHÔNG dùng broadcast 'command/all'
