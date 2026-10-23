@@ -274,8 +274,12 @@ void reconnectMQTT() {
         is_offline_mode = false;
         reconnect_interval = 2000;
 
+        // Chi subscribe topic RIENG cua thiet bi nay.
+        // KHONG subscribe "command/all" (broadcast) o day:
+        //   - tren broker cong khai, bat ky ai cung dieu khien duoc relay
+        //   - khi nhieu ESP32 deu subscribe "all", lenh cho 1 thiet bi se
+        //     lam tat ca cung dong - hong "khong anh huong thiet bi khac"
         mqttClient.subscribe(TOPIC_COMMAND);
-        mqttClient.subscribe(TOPIC_COMMAND_ALL);
 
         StaticJsonDocument<256> onlineDoc;
         onlineDoc["deviceId"] = DEVICE_ID;
