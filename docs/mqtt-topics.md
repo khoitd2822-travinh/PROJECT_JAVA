@@ -4,22 +4,48 @@ Tài liệu định nghĩa các topic và định dạng gói tin MQTT trao đ�
 
 ## Kết nối Broker
 
-Broker mặc định: `broker.emqx.io` (hoặc `localhost` khi chạy docker)
-Port TCP: `1883`
-Port WebSocket: `8083` (hoặc `8084` wss)
+Broker khuyến nghị khi test: EMQX local qua `docker-compose.yml` (`tcp://localhost:1883`).
+
+Broker public `broker.emqx.io` **không nên dùng cho phần điều khiển relay thật** vì ai cũng có thể publish vào topic.
+
+## ⚠️ Đồng bộ chuẩn — SỬA Ở 3 CHỖ
+
+Topic và broker phải giống nhau ở cả 3 nơi. Sửa một chỗ là hệ thống lệch ngay:
+
+| Thành phần | File chứa cấu hình |
+|---|---|
+| Firmware ESP32 | `firmware/esp32-main/include/mqtt_config.h` |
+| Backend Java | `BackEnd/src/main/resources/application.yaml` (`mqtt:`) |
+| Frontend | `FrontEnd/src/lib/mqtt-config.ts` |
+
+```cpp
+#define MQTT_TENANT "thanhliem"   // mqtt_config.h
+```
+
+```yaml
+mqtt:
+  tenant: thanhliem             # application.yaml
+```
+
+```ts
+export const MQTT_TENANT = 'thanhliem';  // mqtt-config.ts
+```
 
 ## Cấu trúc Topic
 
-Định dạng chung: `swiftlet/{loại}/{farmId}/{zoneId}/{deviceId}`
+Định dạng chung: `swiftlet/{tenant}/{farmId}/{zoneId}/{deviceId}/{loại}`
 
-Ví dụ: `farmId = 1`, `zoneId = 1`, `deviceId = ESP32_MAIN_01`
+Ví dụ: `tenant = thanhliem`, `farmId = 1`, `zoneId = 1`, `deviceId = ESP32_MAIN_01`
+
+Namespace `tenant` được dùng để **không đụng** tới topic của các nhánh khác trong repo.
 
 ## Danh sách Topic
 
 ### 1. Telemetry (Dữ liệu cảm biến)
 
-Topic: `swiftlet/telemetry/1/1/ESP32_MAIN_01`
-Backend subscribe: `swiftlet/telemetry/#`
+Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/telemetry`
+Backend subscribe: `swiftlet/thanhliem/+/+/telemetry`
+Frontend subscribe: `swiftlet/thanhliem/+/+/telemetry`
 Tần suất: 2 giây/lần
 
 Payload mẫu:
@@ -52,7 +78,12 @@ Payload mẫu:
 
 ### 2. Command (Điều khiển từ server)
 
-Topic: `swiftlet/command/ESP32_MAIN_01` hoặc `swiftlet/command/all`
+Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/command`
+
+> **Không dùng topic broadcast.** Firmware cũ từng subscribe `swiftlet/command/all` — đã bỏ.
+> Lý do: khi nhiều ESP32 cùng subscribe topic chung, một lệnh gửi cho thiết bị A sẽ
+> kích hoạt **tất cả** thiết bị. Trên broker công khai, bất kỳ ai cũng điều khiển được relay.
+> Mỗi thiết bị chỉ nghe topic của riêng mình.
 
 Lệnh điều khiển rơ-le:
 ```json
@@ -87,7 +118,7 @@ Lệnh lấy trạng thái tức thời:
 
 ### 3. Response (Phản hồi từ ESP32)
 
-Topic: `swiftlet/response/ESP32_MAIN_01`
+Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/response`
 
 Payload:
 ```json
@@ -105,7 +136,7 @@ Payload:
 
 ### 4. Alert (Cảnh báo sự cố)
 
-Topic: `swiftlet/alert/ESP32_MAIN_01`
+Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/alert`
 
 Cảnh báo loa dẫn dụ tắt hoặc hỏng:
 ```json
@@ -121,7 +152,7 @@ Cảnh báo loa dẫn dụ tắt hoặc hỏng:
 
 ### 5. Status (Trạng thái thiết bị)
 
-Topic: `swiftlet/status/ESP32_MAIN_01` (QoS 1, retain = true)
+Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/status` (QoS 1, retain = true)
 
 Khi khởi động:
 ```json
