@@ -22,3 +22,8 @@ export const TOPIC_TELEMETRY = `swiftlet/${MQTT_TENANT}/+/+/telemetry`;
 
 // Topic trạng thái online/offline (retained)
 export const TOPIC_STATUS = `swiftlet/${MQTT_TENANT}/+/+/status`;
+
+// Topic GỬI LỆNH điều khiển relay.
+// Mỗi thiết bị có topic riêng - KHÔNG dùng broadcast 'command/all'
+// vì khi nhiều ESP32 cùng nghe topic chung, 1 lệnh sẽ kích hoạt tất cả.
+export const TOPIC_COMMAND = `swiftlet/${MQTT_TENANT}/1/1/ESP32_MAIN_01/command`;

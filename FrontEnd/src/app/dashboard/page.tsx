@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import mqtt, { MqttClient } from 'mqtt';
-import { MQTT_BROKER_URL, TOPIC_TELEMETRY } from '@/lib/mqtt-config';
+import { MQTT_BROKER_URL, TOPIC_TELEMETRY } from '../../lib/mqtt-config';
 
 interface SwiftletHouse {
   id: string;
