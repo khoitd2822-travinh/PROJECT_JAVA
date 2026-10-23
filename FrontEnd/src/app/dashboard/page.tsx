@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import mqtt, { MqttClient } from 'mqtt';
+import { MQTT_BROKER_URL, TOPIC_TELEMETRY } from '../../lib/mqtt-config';
 
 interface SwiftletHouse {
   id: string;
@@ -52,9 +53,9 @@ export default function DashboardOverviewPage() {
   const [videoUrl, setVideoUrl] = useState("");
   const [videoName, setVideoName] = useState("");
 
-  // Khởi tạo kết nối MQTT trực tiếp trong trang
+  // Kết nối MQTT đúng broker + đúng topic mà ESP32 thực sự phát
   useEffect(() => {
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+    const client = mqtt.connect(MQTT_BROKER_URL, {
       clientId: `swiftlet_web_${Math.random().toString(16).substring(2, 8)}`,
       clean: true,
       connectTimeout: 4000,
@@ -63,29 +64,35 @@ export default function DashboardOverviewPage() {
     client.on('connect', () => {
       setIsConnected(true);
       console.log('✅ Đã kết nối MQTT thành công!');
-      client.subscribe('swiftletcare/house-01/sensors');
+      // ESP32 phát: swiftlet/thanhliem/1/1/ESP32_MAIN_01/telemetry
+      client.subscribe(TOPIC_TELEMETRY);
+      console.log('📡 Đang nghe:', TOPIC_TELEMETRY);
     });
 
     client.on('message', (topic, message) => {
-      if (topic === 'swiftletcare/house-01/sensors') {
-        try {
-          const data = JSON.parse(message.toString());
-          setHouses((prev) =>
-            prev.map((house) =>
-              house.id === 'house-01'
-                ? {
-                    ...house,
-                    temperature: data.temperature ?? house.temperature,
-                    humidity: data.humidity ?? house.humidity,
-                    co2: data.co2 ?? house.co2,
-                    mistingActive: data.mistingActive ?? house.mistingActive,
-                  }
-                : house
-            )
-          );
-        } catch (e) {
-          console.error('Lỗi parse JSON MQTT:', e);
-        }
+      // Topic dạng: swiftlet/<tenant>/<farm>/<zone>/<deviceId>/telemetry
+      const parts = topic.split('/');
+      const deviceId = parts[parts.length - 2];
+
+      try {
+        // Firmware gửi field: temp, hum, co2, light, sound, relays
+        const data = JSON.parse(message.toString());
+
+        setHouses((prev) =>
+          prev.map((house) => {
+            if (house.id !== 'house-01') return house;
+            return {
+              ...house,
+              temperature: data.temp ?? house.temperature,
+              humidity: data.hum ?? house.humidity,
+              co2: data.co2 ?? house.co2,
+              mistingActive: data.relays?.mist === 1,
+            };
+          })
+        );
+        console.log(`📨 ${deviceId}`, data);
+      } catch (e) {
+        console.error('Lỗi parse JSON MQTT:', e);
       }
     });
 
@@ -96,16 +103,25 @@ export default function DashboardOverviewPage() {
     };
   }, []);
 
-  // Hàm giả lập gửi dữ liệu cảm biến qua MQTT
+  // Phát dữ liệu GIẢ đúng topic/chuẩn mà ESP32 dùng, để test giao diện
+  // khi chưa nạp firmware thật. Đây là dữ liệu MÔ PHỎNG - không điều khiển relay.
   const handleSimulateMqttData = () => {
-    if (mqttClient) {
+    if (mqttClient && isConnected) {
       const fakeData = {
-        temperature: parseFloat((27 + Math.random() * 6).toFixed(1)),
-        humidity: parseFloat((70 + Math.random() * 20).toFixed(1)),
+        deviceId: 'SIM_ESP32_01',
+        farmId: 1,
+        zoneId: 1,
+        temp: parseFloat((27 + Math.random() * 6).toFixed(1)),
+        hum: parseFloat((70 + Math.random() * 20).toFixed(1)),
         co2: Math.floor(500 + Math.random() * 400),
-        mistingActive: Math.random() > 0.5,
+        light: Math.floor(Math.random() * 200),
+        sound: parseFloat((40 + Math.random() * 40).toFixed(1)),
+        relays: { mist: Math.random() > 0.5 ? 1 : 0, fan: 0, heat: 0, alarm: 0 },
       };
-      mqttClient.publish('swiftletcare/house-01/sensors', JSON.stringify(fakeData));
+      mqttClient.publish(TOPIC_TELEMETRY, JSON.stringify(fakeData));
+      console.log('⚡ Đã phát dữ liệu mô phỏng:', fakeData);
+    } else {
+      console.warn('⚠️ Chưa kết nối MQTT - không thể phát dữ liệu mô phỏng');
     }
   };
 
