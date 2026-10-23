@@ -2,6 +2,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { houseApi } from "../lib/api";
+import { SwiftletHouse } from "../data/mockData";
 
 const menuItems = [
   { name: "Dashboard", icon: "▦" },
@@ -19,11 +23,64 @@ const initialDevices = [
 ];
 
 export default function Home() {
+  const router = useRouter();//  Khai báo router
   const [activePage, setActivePage] = useState("Dashboard");
   const [devices, setDevices] = useState(initialDevices);
   const [autoMode, setAutoMode] = useState(true);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoName, setVideoName] = useState("");
+// Thêm dữ liệu từ API / Mock Data
+  const [houses, setHouses] = useState<SwiftletHouse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [userName, setUserName] = useState("Administrator"); 
+  useEffect(() => {
+    const auth = localStorage.getItem("isAuthenticated");
+    if (!auth) {
+      router.push("/login");
+    } else {
+      // Lấy thông tin tài khoản vừa đăng nhập
+      const userStr = localStorage.getItem("currentUser");
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        if (user.fullName) {
+          setUserName(user.fullName); // Cập nhật tên người dùng
+        }
+      }
+    }
+  }, [router]);
+
+  const handleLogout = () => {
+  localStorage.removeItem("isAuthenticated");
+  localStorage.removeItem("currentUser");
+  router.push("/login");
+};
+
+  // Gọi REST API Service khi load trang
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const houseData = await houseApi.getHouses();
+        setHouses(houseData);
+      } catch (error) {
+        console.error("Lỗi:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+  
+// Thêm state quản lý tầng được chọn
+  const [selectedHouseIndex, setSelectedHouseIndex] = useState(0);
+
+  // Lấy dữ liệu của tầng đang chọn (mặc định Tầng 1 index = 0)
+  const currentHouse = houses[selectedHouseIndex] || houses[0] || {
+    temperature: 28.4,
+    humidity: 82.5,
+    co2: 650,
+    light: 120,
+  };
 
   function toggleDevice(index: number) {
     setDevices((current) =>
@@ -73,56 +130,99 @@ export default function Home() {
             <p className="eyebrow">SWIFTLET FARM MANAGEMENT</p>
             <h1>{activePage}</h1>
           </div>
-          <div className="user-profile">
-            <div className="avatar">A</div>
+          <div className="user-profile" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div className="avatar">
+              {userName.charAt(0).toUpperCase()}
+            </div>
             <div>
-              <strong>Administrator</strong>
-              <p>Farm Owner</p>
+              <strong>{userName}</strong>
+              <p style={{ margin: "2px 0 4px 0", fontSize: "12px", color: "#666" }}>Chủ nhà yến</p>
+              
+              {/* Nút Đăng xuất ngay dưới */}
+              <button
+                onClick={handleLogout}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#d9534f",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                  padding: "0",
+                  textDecoration: "underline"
+                }}
+              >
+                Đăng xuất
+              </button>
             </div>
           </div>
         </header>
 
         {activePage === "Dashboard" && (
           <>
-            <div className="welcome">
+            <div className="welcome"> // hai tang 
               <div>
                 <h2>Welcome back!</h2>
                 <p>Here is your swiftlet house overview.</p>
               </div>
-              <span className="status-pill">● All systems normal</span>
+
+              {/* Thêm phần chọn tầng vào đây mà không xóa gì cũ */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                {houses.length > 0 && (
+                  <select
+                    value={selectedHouseIndex}
+                    onChange={(e) => setSelectedHouseIndex(Number(e.target.value))}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid #d0d7de",
+                      fontWeight: "600",
+                      backgroundColor: "#ffffff",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {houses.map((house, idx) => (
+                      <option key={house.id || idx} value={idx}>
+                        {house.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="status-pill">● All systems normal</span>
+              </div>
             </div>
 
             <div className="stats-grid">
               <StatCard
                 label="Temperature"
-                value="29.5"
+                value={String(currentHouse.temperature)}
                 unit="°C"
-                note="Within target range"
+                note="Mức an toàn (26–32°C)"
                 icon="♨"
                 color="orange"
               />
               <StatCard
                 label="Humidity"
-                value="86"
+                value={String(currentHouse.humidity)}
                 unit="%"
-                note="Optimal humidity"
+                note="Mức tối ưu (>75%)"
                 icon="♧"
                 color="blue"
               />
               <StatCard
-                label="Swiftlets Today"
-                value="1,248"
-                unit="birds"
-                note="Entry and exit estimate"
-                icon="⌁"
+                label="Air Quality (CO₂)"
+                value={String(currentHouse.co2)}
+                unit="ppm"
+                note="Khí gas / CO₂ ổn định"
+                icon="◉"
                 color="green"
               />
               <StatCard
-                label="System Status"
-                value="Online"
-                unit=""
-                note="All sensors connected"
-                icon="✓"
+                label="Light Intensity"
+                value={String(currentHouse.light)}
+                unit="Lux"
+                note="Ánh sáng phù hợp"
+                icon="☼"
                 color="purple"
               />
             </div>
@@ -747,42 +847,39 @@ export default function Home() {
     </div>
 
     <div className="stats-grid">
-      <StatCard
-        label="Total Alerts"
-        value="12"
-        unit="alerts"
-        note="Cảnh báo mẫu"
-        icon="!"
-        color="orange"
-      />
-
-      <StatCard
-        label="Critical Alerts"
-        value="2"
-        unit="alerts"
-        note="Cần kiểm tra"
-        icon="⚠"
-        color="purple"
-      />
-
-      <StatCard
-        label="Resolved"
-        value="8"
-        unit="alerts"
-        note="Đã xử lý"
-        icon="✓"
-        color="green"
-      />
-
-      <StatCard
-        label="Active Devices"
-        value={String(devices.filter((device) => device.on).length)}
-        unit="devices"
-        note="Thiết bị đang bật"
-        icon="◉"
-        color="blue"
-      />
-    </div>
+  <StatCard
+    label="Temperature"
+    value={String(currentHouse.temperature)}
+    unit="°C"
+    note="Mức an toàn (26–32°C)"
+    icon="♨"
+    color="orange"
+  />
+  <StatCard
+    label="Humidity"
+    value={String(currentHouse.humidity)}
+    unit="%"
+    note="Mức tối ưu (>75%)"
+    icon="♧"
+    color="blue"
+  />
+  <StatCard
+    label="Air Quality (CO₂)"
+    value={String(currentHouse.co2)}
+    unit="ppm"
+    note="Khí gas / CO₂ ổn định"
+    icon="◉"
+    color="green"
+  />
+  <StatCard
+    label="Light Intensity"
+    value={String(currentHouse.light)}
+    unit="Lux"
+    note="Ánh sáng phù hợp"
+    icon="☼"
+    color="purple"
+  />
+</div>
 
     <section className="panel alerts-panel">
       <div className="panel-heading">
