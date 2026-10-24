@@ -26,8 +26,14 @@
 
 #if MQTT_BROKER_MODE == MQTT_BROKER_MODE_LOCAL
 // IP may chay docker-compose. ESP32 phai cung mang LAN voi may nay.
-// Hien tai: 10.188.247.85 (Wi-Fi) - sua neu doi sang may khac.
-#define MQTT_BROKER_HOST "10.188.247.85"
+// Hien tai: 10.88.164.85 (Wi-Fi) - sua neu doi sang may khac.
+//
+// QUAN TRONG: IP may se doi khi doi mang (DHCP). Ghi de khi build:
+//   pio run -e esp32dev --project-option="build_flags=-DMQTT_BROKER_HOST=\\\"10.x.x.x\\\""
+// hoac doi truc tiep gia tri ben duoi.
+#ifndef MQTT_BROKER_HOST
+#define MQTT_BROKER_HOST "10.88.164.85"
+#endif
 #define MQTT_BROKER_PORT 1883
 #elif MQTT_BROKER_MODE == MQTT_BROKER_MODE_PUBLIC
 #define MQTT_BROKER_HOST "broker.emqx.io"
@@ -65,8 +71,11 @@
 #define MQTT_CLIENT_ID MQTT_TENANT "_" DEVICE_ID
 
 // ---- Wi-Fi ----
-// ESP32 phai cung mang LAN voi may chay docker (10.188.247.85).
+// ESP32 phai cung mang LAN voi may chay docker (10.88.164.85).
 // "Wokwi-GUEST" chi dung cho mo phong tren Wokwi.
+//
+// KHONG ghi mat khau thật vao file nay. Ghi de khi build:
+//   pio run -e esp32dev --project-option="build_flags=-DWIFI_SSID=\\\"...\\\" -DWIFI_PASSWORD=\\\"...\\\""
 #ifndef WIFI_SSID
 #define WIFI_SSID "Wokwi-GUEST"
 #endif

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import mqtt, { MqttClient } from 'mqtt';
-import { MQTT_BROKER_URL, TOPIC_TELEMETRY } from '../../lib/mqtt-config';
+import { MQTT_BROKER_URL, TOPIC_TELEMETRY, TOPIC_SIMULATION } from '../../lib/mqtt-config';
 
 interface SwiftletHouse {
   id: string;
@@ -105,6 +105,8 @@ export default function DashboardOverviewPage() {
 
   // Phát dữ liệu GIẢ đúng topic/chuẩn mà ESP32 dùng, để test giao diện
   // khi chưa nạp firmware thật. Đây là dữ liệu MÔ PHỎNG - không điều khiển relay.
+  // Phát trên TOPIC_SIMULATION (không phải TOPIC_TELEMETRY) để backend
+  // không ghi dữ liệu giả vào TimescaleDB.
   const handleSimulateMqttData = () => {
     if (mqttClient && isConnected) {
       const fakeData = {
@@ -118,7 +120,7 @@ export default function DashboardOverviewPage() {
         sound: parseFloat((40 + Math.random() * 40).toFixed(1)),
         relays: { mist: Math.random() > 0.5 ? 1 : 0, fan: 0, heat: 0, alarm: 0 },
       };
-      mqttClient.publish(TOPIC_TELEMETRY, JSON.stringify(fakeData));
+      mqttClient.publish(TOPIC_SIMULATION, JSON.stringify(fakeData));
       console.log('⚡ Đã phát dữ liệu mô phỏng:', fakeData);
     } else {
       console.warn('⚠️ Chưa kết nối MQTT - không thể phát dữ liệu mô phỏng');

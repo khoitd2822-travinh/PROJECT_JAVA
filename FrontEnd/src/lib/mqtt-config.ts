@@ -24,7 +24,17 @@ export const TOPIC_TELEMETRY = `swiftlet/${MQTT_TENANT}/+/+/+/telemetry`;
 // Topic trạng thái online/offline (retained)
 export const TOPIC_STATUS = `swiftlet/${MQTT_TENANT}/+/+/+/status`;
 
+// Topic phản hồi từ ESP32 sau khi xử lý lệnh điều khiển.
+// Firmware publish: swiftlet/<tenant>/<farm>/<zone>/<deviceId>/response
+export const TOPIC_RESPONSE = `swiftlet/${MQTT_TENANT}/+/+/+/response`;
+
 // Topic GỬI LỆNH điều khiển relay.
 // Mỗi thiết bị có topic riêng - KHÔNG dùng broadcast 'command/all'
 // vì khi nhiều ESP32 cùng nghe topic chung, 1 lệnh sẽ kích hoạt tất cả.
 export const TOPIC_COMMAND = `swiftlet/${MQTT_TENANT}/1/1/ESP32_MAIN_01/command`;
+
+// Topic RIÊNG cho dữ liệu MÔ PHỎNG từ giao diện web.
+// KHÔNG dùng TOPIC_TELEMETRY để phát dữ liệu giả: backend subscribe
+// topic telemetry và sẽ ghi thẳng số liệu giả vào TimescaleDB,
+// làm sai lệch dữ liệu thật. Topic này backend không subscribe.
+export const TOPIC_SIMULATION = `swiftlet/${MQTT_TENANT}/sim/telemetry`;

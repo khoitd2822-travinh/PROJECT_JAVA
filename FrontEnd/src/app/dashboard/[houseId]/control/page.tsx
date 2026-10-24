@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import mqtt, { MqttClient } from 'mqtt';
-import { MQTT_BROKER_URL, TOPIC_TELEMETRY, TOPIC_COMMAND } from '../../../../lib/mqtt-config';
+import { MQTT_BROKER_URL, TOPIC_TELEMETRY, TOPIC_COMMAND, TOPIC_RESPONSE } from '../../../../lib/mqtt-config';
 
 type RelayKey = 'mist' | 'fan' | 'heat' | 'alarm';
 
@@ -44,13 +44,25 @@ export default function ControlPage() {
 
     client.on('connect', () => {
       setIsConnected(true);
-      client.subscribe(TOPIC_TELEMETRY);
+      client.subscribe([TOPIC_TELEMETRY, TOPIC_RESPONSE]);
       addLog('Đã kết nối MQTT Broker');
     });
 
-    client.on('message', (_topic, message) => {
+    client.on('message', (topic, message) => {
       try {
         const data = JSON.parse(message.toString());
+
+        if (topic.endsWith('/response')) {
+          // Phản hồi từ ESP32 sau khi xử lý lệnh điều khiển.
+          if (data.status === 'SUCCESS') {
+            addLog(`ESP32 xác nhận: ${data.command} target=${data.target} state=${data.state}`);
+          } else {
+            addLog(`ESP32 từ chối: ${data.command} (${data.status})`);
+          }
+          return;
+        }
+
+        // Telemetry định kỳ từ ESP32.
         if (data.relays) {
           setRelays(data.relays);
         }
@@ -73,6 +85,10 @@ export default function ControlPage() {
 
   // Gửi lệnh điều khiển. mode MANUAL = giữ trạng thái, AUTO = trả về
   // cho ESP32 tự điều khiển theo cảm biến.
+  //
+  // KHÔNG tự cập nhật trạng thái relay ở đây: trạng thái thật đến từ
+  // telemetry / response của ESP32. Cập nhật ngay sẽ hiển thị sai
+  // khi ESP32 không nhận được lệnh hoặc từ chối.
   const sendCommand = (target: RelayKey, state: number) => {
     if (!mqttClient || !isConnected) {
       addLog('Chưa kết nối MQTT - không gửi được lệnh');
@@ -85,8 +101,7 @@ export default function ControlPage() {
       mode: 'MANUAL',
     });
     mqttClient.publish(TOPIC_COMMAND, payload);
-    addLog(`Gửi lệnh: ${target} = ${state ? 'BẬT' : 'TẮT'}`);
-    setRelays((prev) => ({ ...prev, [target]: state }));
+    addLog(`Đã gửi lệnh: ${target} = ${state ? 'BẬT' : 'TẮT'} (chờ ESP32 xác nhận)`);
   };
 
   const setAuto = (on: boolean) => {
