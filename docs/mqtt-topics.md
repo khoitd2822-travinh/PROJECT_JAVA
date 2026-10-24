@@ -8,15 +8,28 @@ Broker khuyến nghị khi test: EMQX local qua `docker-compose.yml` (`tcp://loc
 
 Broker public `broker.emqx.io` **không nên dùng cho phần điều khiển relay thật** vì ai cũng có thể publish vào topic.
 
-## ⚠️ Đồng bộ chuẩn — SỬA Ở 3 CHỖ
+> **IP broker không nằm trong git.** ESP32 chính cần IP LAN của máy chạy
+> `docker-compose`, mà IP đổi theo DHCP và mỗi máy nạp code cần IP khác nhau.
+> Vì vậy `firmware/esp32-main/include/mqtt_config.h` mặc định là `localhost`,
+> và IP thật được khai báo ở file local `firmware/esp32-main/include/mqtt_config.local.h`
+> (đã git-ignore) hoặc truyền qua `-DMQTT_BROKER_HOST` lúc build.
+>
+> Chạy script sau để tự động dò IP máy và sinh file local:
+> ```bash
+> python firmware/scripts/setup_local_config.py
+> ```
+> Chi tiết: `firmware/README.md`.
 
-Topic và broker phải giống nhau ở cả 3 nơi. Sửa một chỗ là hệ thống lệch ngay:
+## ⚠️ Đồng bộ chuẩn — SỬA Ở 4 CHỖ
+
+Topic và broker phải giống nhau ở cả 4 nơi. Sửa một chỗ là hệ thống lệch ngay:
 
 | Thành phần | File chứa cấu hình |
 |---|---|
 | Firmware ESP32 | `firmware/esp32-main/include/mqtt_config.h` |
 | Backend Java | `BackEnd/src/main/resources/application.yaml` (`mqtt:`) |
 | Frontend | `FrontEnd/src/lib/mqtt-config.ts` |
+| Script test | `firmware/tests/benchmark_latency.py` |
 
 ```cpp
 #define MQTT_TENANT "thanhliem"   // mqtt_config.h
@@ -44,8 +57,8 @@ Namespace `tenant` được dùng để **không đụng** tới topic của cá
 ### 1. Telemetry (Dữ liệu cảm biến)
 
 Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/telemetry`
-Backend subscribe: `swiftlet/thanhliem/+/+/telemetry`
-Frontend subscribe: `swiftlet/thanhliem/+/+/telemetry`
+Backend subscribe: `swiftlet/thanhliem/+/+/+/telemetry`
+Frontend subscribe: `swiftlet/thanhliem/+/+/+/telemetry`
 Tần suất: 2 giây/lần
 
 Payload mẫu:
@@ -159,9 +172,11 @@ Khi khởi động:
 {
   "deviceId": "ESP32_MAIN_01",
   "status": "ONLINE",
-  "ip": "192.168.1.150"
+  "ip": "<IP-LAN-cua-thiet-bi>"
 }
 ```
+
+> `ip` là IP LAN của thiết bị, firmware lấy động từ `WiFi.localIP()` nên sẽ khác nhau theo mạng.
 
 LWT khi mất kết nối:
 ```json

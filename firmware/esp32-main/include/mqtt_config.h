@@ -13,6 +13,18 @@
 //   3. KHONG subscribe topic broadcast "command/all" o che do AUTO.
 // ============================================================
 
+// ---- Config LOCAL cua may (KHONG commit) ----
+// File nay chua IP broker + Wi-Fi rieng cho may dang chay.
+// Sinh bang:  python firmware/scripts/setup_local_config.py
+//
+// Cac gia tri trong file local deu co #ifndef nen build_flags
+// (vi du -DMQTT_BROKER_HOST="...") LUON THANG - dung ca hai cach cung.
+#if defined(__has_include)
+#if __has_include("mqtt_config.local.h")
+#include "mqtt_config.local.h"
+#endif
+#endif
+
 // ---- Broker ----
 // "local"  = may tinh co chay docker-compose (khuyen nghi khi test)
 // "public" = broker.emqx.io - CHI dung khi can test nhanh, KHONG dung
@@ -25,10 +37,20 @@
 #endif
 
 #if MQTT_BROKER_MODE == MQTT_BROKER_MODE_LOCAL
-// IP may chay docker-compose. ESP32 phai cung mang LAN voi may nay.
-// Hien tai: 10.188.247.85 (Wi-Fi) - sua neu doi sang may khac.
-#define MQTT_BROKER_HOST "10.188.247.85"
+// Host broker. KHONG hardcode trong git - IP may doi theo DHCP.
+//
+// Mac dinh "localhost" de build / mo phong Wokwi khong bi loi compile.
+// Thiet bi that phai dung IP LAN cua may chay docker-compose.
+// Cach cung cap (theo thu tu uu tien):
+//   1. File local bi git-ignore: firmware/esp32-main/include/mqtt_config.local.h
+//   2. Bien dich voi build_flags:
+//      pio run -e esp32dev --project-option="build_flags=-DMQTT_BROKER_HOST=\\\"<IP>\\\""
+#ifndef MQTT_BROKER_HOST
+#define MQTT_BROKER_HOST "localhost"
+#endif
+#ifndef MQTT_BROKER_PORT
 #define MQTT_BROKER_PORT 1883
+#endif
 #elif MQTT_BROKER_MODE == MQTT_BROKER_MODE_PUBLIC
 #define MQTT_BROKER_HOST "broker.emqx.io"
 #define MQTT_BROKER_PORT 1883
@@ -65,8 +87,13 @@
 #define MQTT_CLIENT_ID MQTT_TENANT "_" DEVICE_ID
 
 // ---- Wi-Fi ----
-// ESP32 phai cung mang LAN voi may chay docker (10.188.247.85).
-// "Wokwi-GUEST" chi dung cho mo phong tren Wokwi.
+// ESP32 phai cung mang LAN voi may chay docker-compose.
+//
+// KHONG ghi mat khau that vao file nay. Hai cach cung cap:
+//   1. File local (khuyen nghi): firmware/esp32-main/include/mqtt_config.local.h
+//      -> sinh bang: python firmware/scripts/setup_local_config.py
+//   2. Bien dich voi build_flags:
+//      pio run -e esp32dev --project-option="build_flags=-DWIFI_SSID=\\\"...\\\" -DWIFI_PASSWORD=\\\"...\\\""
 #ifndef WIFI_SSID
 #define WIFI_SSID "Wokwi-GUEST"
 #endif

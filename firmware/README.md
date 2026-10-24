@@ -45,8 +45,98 @@ cd esp32-cam
 pio run --target upload
 ```
 
+## Cấu hình Wi-Fi và broker cho thiết bị thật
+
+Mặc định trong mã nguồn là `Wokwi-GUEST` (chỉ dùng cho mô phỏng) và
+`MQTT_BROKER_HOST` là `localhost`.
+
+**IP broker KHÔNG được commit vào git** — vì IP máy đổi theo DHCP và mỗi
+người nạp code trên máy khác sẽ cần IP khác nhau.
+
+### Cách nhanh nhất — chạy script setup
+
+```bash
+python firmware/scripts/setup_local_config.py
+```
+
+Script sẽ tự động:
+1. Dò IP LAN của máy bạn (theo route mặc định) → làm địa chỉ broker cho ESP32
+2. Dò tên Wi-Fi đang kết nối
+3. Sinh 2 file local (đã git-ignore, **không** ai commit lên GitHub):
+   - `firmware/esp32-main/include/mqtt_config.local.h` (broker + Wi-Fi)
+   - `firmware/esp32-cam/include/wifi_config.local.h` (Wi-Fi)
+4. Kiểm tra broker có chạy không, và báo cáo cần làm gì nếu chưa
+
+Tuỳ chọn:
+
+```bash
+# Chỉ định thủ công khi script dò sai
+python firmware/scripts/setup_local_config.py --broker-host 192.168.1.50
+python firmware/scripts/setup_local_config.py --wifi-ssid "TenWiFi" --wifi-password "MatKhau"
+
+# Không hỏi xác nhận (chạy trong CI hoặc script tự động)
+python firmware/scripts/setup_local_config.py --yes
+```
+
+Sau đó nạp firmware:
+
+```bash
+cd firmware/esp32-main && pio run -t upload
+cd firmware/esp32-cam  && pio run -t upload
+```
+
+> **Khi đổi máy hoặc đổi mạng (DHCP đổi IP)** → chạy lại script setup.
+> File local được `include` tự động, không cần sửa mã nguồn.
+
+### Cách thủ công — tạo file local
+
+```bash
+cat > esp32-main/include/mqtt_config.local.h <<'EOF'
+#pragma once
+#define MQTT_BROKER_HOST "<IP may chay docker-compose>"
+#define WIFI_SSID "<Ten Wi-Fi>"
+#define WIFI_PASSWORD "<Mat khau>"
+EOF
+```
+
+### Cách thủ công — ghi đè lúc build
+
+```bash
+# ESP32 chính
+cd esp32-main
+pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\" -DMQTT_BROKER_HOST=\\\"<IP may chay docker>\\\""
+
+# ESP32-CAM
+cd esp32-cam
+pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\""
+```
+
+> **Lưu ý:** `build_flags` ghi đè giá trị trong file local. Nếu bạn đã dùng
+> file local thì không cần truyền `-DMQTT_BROKER_HOST`.
+
+**Không ghi mật khẩu thật vào file nguồn** — dùng `WIFI_SSID` / `WIFI_PASSWORD`
+qua file local hoặc `build_flags`.
+
+Giá trị mặc định nằm trong:
+- `firmware/esp32-main/include/mqtt_config.h` (broker, tenant, topic, Wi-Fi)
+- `firmware/esp32-cam/include/config.h` (Wi-Fi)
+
+Cả ba đều dùng `#ifndef` nên biến định nghĩa từ `build_flags` sẽ ghi đè giá trị mặc định.
+
+### Lưu ý về đường dẫn có dấu tiếng Việt
+
+Nếu thư mục dự án chứa ký tự đặc biệt (ví dụ `Tài liệu`), bước **link** của
+PlatformIO có thể fail với lỗi `cannot find ...tmp: Invalid argument`. Đây là
+giới hạn của toolchain `xtensa-esp-elf`, **không liên quan** tới mã nguồn.
+Cách xử lý: build trong thư mục có đường dẫn ASCII thuần (ví dụ clone repo vào
+`C:\dev\PROJECT_JAVA`).
+
 ## Chạy kiểm tra độ trễ
 
 ```bash
 python tests/benchmark_latency.py
 ```
+
+Script cần broker đang chạy (mặc định `localhost:1883`). Nếu không kết nối được,
+nó báo `Broker connection | FAILED` — kết quả đo được in ra là số liệu thật,
+không phải giá trị mặc định.
