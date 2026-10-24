@@ -45,8 +45,35 @@ cd esp32-cam
 pio run --target upload
 ```
 
+## Cấu hình Wi-Fi và broker cho thiết bị thật
+
+Mặc định trong mã nguồn là `Wokwi-GUEST` (chỉ dùng cho mô phỏng) và
+`MQTT_BROKER_HOST` trỏ tới IP máy chạy `docker-compose`.
+
+**Không ghi mật khẩu thật vào file nguồn** — ghi đè lúc build:
+
+```bash
+# ESP32 chính
+cd esp32-main
+pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\" -DMQTT_BROKER_HOST=\\\"10.88.164.85\\\""
+
+# ESP32-CAM
+cd esp32-cam
+pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\""
+```
+
+Giá trị mặc định nằm trong:
+- `firmware/esp32-main/include/mqtt_config.h` (broker, tenant, topic, Wi-Fi)
+- `firmware/esp32-cam/include/config.h` (Wi-Fi)
+
+Cả hai đều dùng `#ifndef` nên biến định nghĩa từ `build_flags` sẽ ghi đè giá trị mặc định.
+
 ## Chạy kiểm tra độ trễ
 
 ```bash
 python tests/benchmark_latency.py
 ```
+
+Script cần broker đang chạy (mặc định `localhost:1883`). Nếu không kết nối được,
+nó báo `Broker connection | FAILED` — kết quả đo được in ra là số liệu thật,
+không phải giá trị mặc định.

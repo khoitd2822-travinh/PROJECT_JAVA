@@ -8,15 +8,16 @@ Broker khuyến nghị khi test: EMQX local qua `docker-compose.yml` (`tcp://loc
 
 Broker public `broker.emqx.io` **không nên dùng cho phần điều khiển relay thật** vì ai cũng có thể publish vào topic.
 
-## ⚠️ Đồng bộ chuẩn — SỬA Ở 3 CHỖ
+## ⚠️ Đồng bộ chuẩn — SỬA Ở 4 CHỖ
 
-Topic và broker phải giống nhau ở cả 3 nơi. Sửa một chỗ là hệ thống lệch ngay:
+Topic và broker phải giống nhau ở cả 4 nơi. Sửa một chỗ là hệ thống lệch ngay:
 
 | Thành phần | File chứa cấu hình |
 |---|---|
 | Firmware ESP32 | `firmware/esp32-main/include/mqtt_config.h` |
 | Backend Java | `BackEnd/src/main/resources/application.yaml` (`mqtt:`) |
 | Frontend | `FrontEnd/src/lib/mqtt-config.ts` |
+| Script test | `firmware/tests/benchmark_latency.py` |
 
 ```cpp
 #define MQTT_TENANT "thanhliem"   // mqtt_config.h
@@ -44,8 +45,8 @@ Namespace `tenant` được dùng để **không đụng** tới topic của cá
 ### 1. Telemetry (Dữ liệu cảm biến)
 
 Topic: `swiftlet/thanhliem/1/1/ESP32_MAIN_01/telemetry`
-Backend subscribe: `swiftlet/thanhliem/+/+/telemetry`
-Frontend subscribe: `swiftlet/thanhliem/+/+/telemetry`
+Backend subscribe: `swiftlet/thanhliem/+/+/+/telemetry`
+Frontend subscribe: `swiftlet/thanhliem/+/+/+/telemetry`
 Tần suất: 2 giây/lần
 
 Payload mẫu:
