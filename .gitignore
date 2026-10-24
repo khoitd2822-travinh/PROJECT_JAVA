@@ -46,6 +46,9 @@ ai/models/*
 # Firmware
 .pio/
 
+# Cau hinh local cua may (IP broker, SSID, mat khau) - KHONG commit
+firmware/*/include/*.local.h
+
 # Next.js / TypeScript
 *.tsbuildinfo
 .next/

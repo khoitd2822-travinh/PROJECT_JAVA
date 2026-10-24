@@ -1,6 +1,6 @@
 #pragma once
 
-// ESP32-CAM phai cung mang LAN voi may chay docker-compose (10.88.164.85).
+// ESP32-CAM phai cung mang LAN voi may chay docker-compose.
 // "Wokwi-GUEST" chi dung cho mo phong tren Wokwi.
 //
 // KHONG ghi mat khau thật vao file nay. Ghi de khi build:

@@ -48,19 +48,41 @@ pio run --target upload
 ## Cấu hình Wi-Fi và broker cho thiết bị thật
 
 Mặc định trong mã nguồn là `Wokwi-GUEST` (chỉ dùng cho mô phỏng) và
-`MQTT_BROKER_HOST` trỏ tới IP máy chạy `docker-compose`.
+`MQTT_BROKER_HOST` là `localhost`.
 
-**Không ghi mật khẩu thật vào file nguồn** — ghi đè lúc build:
+**IP broker KHÔNG được commit vào git** — vì IP máy đổi theo DHCP và mỗi
+người nạp code trên máy khác sẽ cần IP khác nhau.
+
+Cách 1 — tạo file local (khuyến nghị, tự động được `include`):
+
+```bash
+# Tao file local chua IP may chay docker-compose
+cat > esp32-main/include/mqtt_config.local.h <<'EOF'
+#pragma once
+#define MQTT_BROKER_HOST "<IP may chay docker-compose>"
+EOF
+```
+
+File này đã nằm trong `.gitignore` (`firmware/*/include/*.local.h`) nên không
+bị commit lên GitHub.
+
+Cách 2 — ghi đè lúc build:
 
 ```bash
 # ESP32 chính
 cd esp32-main
-pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\" -DMQTT_BROKER_HOST=\\\"10.88.164.85\\\""
+pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\" -DMQTT_BROKER_HOST=\\\"<IP may chay docker>\\\""
 
 # ESP32-CAM
 cd esp32-cam
 pio run -t upload --project-option="build_flags=-DWIFI_SSID=\\\"TenWiFi\\\" -DWIFI_PASSWORD=\\\"MatKhau\\\""
 ```
+
+> **Lưu ý:** `build_flags` ghi đè giá trị trong file local. Nếu bạn dùng file
+> local thì không cần truyền `-DMQTT_BROKER_HOST`.
+
+**Không ghi mật khẩu thật vào file nguồn** — dùng `WIFI_SSID` / `WIFI_PASSWORD`
+qua `build_flags` hoặc file local tương ứng.
 
 Giá trị mặc định nằm trong:
 - `firmware/esp32-main/include/mqtt_config.h` (broker, tenant, topic, Wi-Fi)

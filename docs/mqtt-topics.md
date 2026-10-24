@@ -8,6 +8,13 @@ Broker khuyến nghị khi test: EMQX local qua `docker-compose.yml` (`tcp://loc
 
 Broker public `broker.emqx.io` **không nên dùng cho phần điều khiển relay thật** vì ai cũng có thể publish vào topic.
 
+> **IP broker không nằm trong git.** ESP32 chính cần IP LAN của máy chạy
+> `docker-compose`, mà IP đổi theo DHCP và mỗi máy nạp code cần IP khác nhau.
+> Vì vậy `firmware/esp32-main/include/mqtt_config.h` mặc định là `localhost`,
+> và IP thật được khai báo ở file local `firmware/esp32-main/include/mqtt_config.local.h`
+> (đã git-ignore) hoặc truyền qua `-DMQTT_BROKER_HOST` lúc build.
+> Chi tiết: `firmware/README.md`.
+
 ## ⚠️ Đồng bộ chuẩn — SỬA Ở 4 CHỖ
 
 Topic và broker phải giống nhau ở cả 4 nơi. Sửa một chỗ là hệ thống lệch ngay:
