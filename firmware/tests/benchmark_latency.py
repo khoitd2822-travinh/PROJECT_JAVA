@@ -10,14 +10,20 @@ import threading
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-DEFAULT_BROKER = "broker.emqx.io"
+# Broker + topic PHẢI khớp với firmware/esp32-main/include/mqtt_config.h
+# và BackEnd/src/main/resources/application.yaml
+# Đổi cả 3 chỗ cùng lúc nếu đổi TENANT.
+TENANT = "thanhliem"
+
+DEFAULT_BROKER = "localhost"
 DEFAULT_PORT = 1883
 DEVICE_ID = "ESP32_MAIN_01"
 
-TOPIC_TELEMETRY = f"swiftlet/telemetry/1/1/{DEVICE_ID}"
-TOPIC_COMMAND = f"swiftlet/command/{DEVICE_ID}"
-TOPIC_RESPONSE = f"swiftlet/response/{DEVICE_ID}"
-TOPIC_ALERT = f"swiftlet/alert/{DEVICE_ID}"
+BASE = f"swiftlet/{TENANT}/1/1/{DEVICE_ID}"
+TOPIC_TELEMETRY = f"{BASE}/telemetry"
+TOPIC_COMMAND = f"{BASE}/command"
+TOPIC_RESPONSE = f"{BASE}/response"
+TOPIC_ALERT = f"{BASE}/alert"
 
 class SimpleMqttClient:
     def __init__(self, host, port=1883, client_id="swiftlet_tester"):

@@ -274,8 +274,12 @@ void reconnectMQTT() {
         is_offline_mode = false;
         reconnect_interval = 2000;
 
+        // Chi subscribe topic RIENG cua thiet bi nay.
+        // KHONG subscribe "command/all" (broadcast) o day:
+        //   - tren broker cong khai, bat ky ai cung dieu khien duoc relay
+        //   - khi nhieu ESP32 deu subscribe "all", lenh cho 1 thiet bi se
+        //     lam tat ca cung dong - hong "khong anh huong thiet bi khac"
         mqttClient.subscribe(TOPIC_COMMAND);
-        mqttClient.subscribe(TOPIC_COMMAND_ALL);
 
         StaticJsonDocument<256> onlineDoc;
         onlineDoc["deviceId"] = DEVICE_ID;
@@ -321,7 +325,14 @@ void setup() {
     mqttClient.setCallback(handleIncomingCommand);
     mqttClient.setBufferSize(512);
 
-    esp_task_wdt_init(WATCHDOG_TIMEOUT_SEC, true);
+    // Task Watchdog - API Arduino core 3.x (esp-idf 5.x)
+    // API cu: esp_task_wdt_init(timeout_sec, panic) -> da bi xoa
+    // API moi: esp_task_wdt_init(const esp_task_wdt_config_t *config)
+    esp_task_wdt_config_t wdtConfig;
+    wdtConfig.timeout_ms = WATCHDOG_TIMEOUT_SEC * 1000;
+    wdtConfig.idle_core_mask = 0;          // chi theo doi task cua app, khong theo doi idle
+    wdtConfig.trigger_panic = true;
+    esp_task_wdt_init(&wdtConfig);
     esp_task_wdt_add(NULL);
 }
 
