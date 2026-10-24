@@ -46,6 +46,10 @@ ai/models/*
 # Firmware
 .pio/
 
+# Next.js / TypeScript
+*.tsbuildinfo
+.next/
+
 # System & Media
 .DS_Store
 Thumbs.db
