@@ -25,14 +25,25 @@
 #endif
 
 #if MQTT_BROKER_MODE == MQTT_BROKER_MODE_LOCAL
-// IP may chay docker-compose. ESP32 phai cung mang LAN voi may nay.
-// Hien tai: 10.88.164.85 (Wi-Fi) - sua neu doi sang may khac.
+// Host broker. KHONG hardcode trong git - IP may doi theo DHCP.
 //
-// QUAN TRONG: IP may se doi khi doi mang (DHCP). Ghi de khi build:
-//   pio run -e esp32dev --project-option="build_flags=-DMQTT_BROKER_HOST=\\\"10.x.x.x\\\""
-// hoac doi truc tiep gia tri ben duoi.
+// Cach cung cap (theo thu tu uu tien):
+//   1. File local bi git-ignore: firmware/esp32-main/include/mqtt_config.local.h
+//   2. Bien dich voi build_flags:
+//      pio run -e esp32dev --project-option="build_flags=-DMQTT_BROKER_HOST=\\\"<IP may chay docker>\\\""
+//
+// Mac dinh "localhost" de build/m-mo phong Wokwi khong bi loi compile.
+// Thiet bi that phai dung IP LAN cua may chay docker-compose.
 #ifndef MQTT_BROKER_HOST
-#define MQTT_BROKER_HOST "10.88.164.85"
+#if defined(__has_include)
+#if __has_include("mqtt_config.local.h")
+#include "mqtt_config.local.h"
+#endif
+#endif
+#endif
+
+#ifndef MQTT_BROKER_HOST
+#define MQTT_BROKER_HOST "localhost"
 #endif
 #define MQTT_BROKER_PORT 1883
 #elif MQTT_BROKER_MODE == MQTT_BROKER_MODE_PUBLIC
@@ -71,8 +82,7 @@
 #define MQTT_CLIENT_ID MQTT_TENANT "_" DEVICE_ID
 
 // ---- Wi-Fi ----
-// ESP32 phai cung mang LAN voi may chay docker (10.88.164.85).
-// "Wokwi-GUEST" chi dung cho mo phong tren Wokwi.
+// ESP32 phai cung mang LAN voi may chay docker-compose.
 //
 // KHONG ghi mat khau thật vao file nay. Ghi de khi build:
 //   pio run -e esp32dev --project-option="build_flags=-DWIFI_SSID=\\\"...\\\" -DWIFI_PASSWORD=\\\"...\\\""
