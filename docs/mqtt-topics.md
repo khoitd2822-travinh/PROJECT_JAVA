@@ -13,6 +13,11 @@ Broker public `broker.emqx.io` **không nên dùng cho phần điều khiển re
 > Vì vậy `firmware/esp32-main/include/mqtt_config.h` mặc định là `localhost`,
 > và IP thật được khai báo ở file local `firmware/esp32-main/include/mqtt_config.local.h`
 > (đã git-ignore) hoặc truyền qua `-DMQTT_BROKER_HOST` lúc build.
+>
+> Chạy script sau để tự động dò IP máy và sinh file local:
+> ```bash
+> python firmware/scripts/setup_local_config.py
+> ```
 > Chi tiết: `firmware/README.md`.
 
 ## ⚠️ Đồng bộ chuẩn — SỬA Ở 4 CHỖ
