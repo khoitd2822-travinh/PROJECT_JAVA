@@ -160,9 +160,11 @@ Khi khởi động:
 {
   "deviceId": "ESP32_MAIN_01",
   "status": "ONLINE",
-  "ip": "192.168.1.150"
+  "ip": "<IP-LAN-cua-thiet-bi>"
 }
 ```
+
+> `ip` là IP LAN của thiết bị, firmware lấy động từ `WiFi.localIP()` nên sẽ khác nhau theo mạng.
 
 LWT khi mất kết nối:
 ```json
