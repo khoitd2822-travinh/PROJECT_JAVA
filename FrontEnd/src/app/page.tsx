@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { houseApi } from "../lib/api";
 import { SwiftletHouse } from "../data/mockData";
+import SensorChart from "../components/SensorChart";
+import CameraStream from "../components/CameraStream";
+import AnalyticsChart from "../components/AnalyticsChart";
 
 const menuItems = [
   { name: "Dashboard", icon: "▦" },
@@ -228,67 +231,8 @@ export default function Home() {
             </div>
 
             <div className="content-grid">
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>Environmental Conditions</h3>
-                    <p>Sample temperature readings</p>
-                  </div>
-                  <span className="small-tag">Today</span>
-                </div>
-                <div className="chart">
-                  <div className="chart-labels">
-                    <span>34°C</span>
-                    <span>32°C</span>
-                    <span>30°C</span>
-                    <span>28°C</span>
-                    <span>26°C</span>
-                  </div>
-                  <svg
-                    viewBox="0 0 600 200"
-                    className="chart-svg"
-                    role="img"
-                    aria-label="Sample temperature chart"
-                  >
-                    {[25, 65, 105, 145, 185].map((y) => (
-                      <line
-                        key={y}
-                        x1="0"
-                        y1={y}
-                        x2="600"
-                        y2={y}
-                        stroke="#e8edf3"
-                        strokeDasharray="4 5"
-                      />
-                    ))}
-                    <path
-                      d="M0 125 L75 110 L150 120 L225 75 L300 90 L375 60 L450 80 L525 45 L600 65"
-                      fill="none"
-                      stroke="#219b80"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    {[
-                      [0, 125], [75, 110], [150, 120],
-                      [225, 75], [300, 90], [375, 60],
-                      [450, 80], [525, 45], [600, 65],
-                    ].map(([x, y]) => (
-                      <circle key={x} cx={x} cy={y} r="4" fill="#219b80" />
-                    ))}
-                  </svg>
-                </div>
-                <div className="chart-times">
-                  <span>06:00</span>
-                  <span>09:00</span>
-                  <span>12:00</span>
-                  <span>15:00</span>
-                  <span>18:00</span>
-                </div>
-                <p className="demo-note">
-                  Demonstration data — not connected to real sensors.
-                </p>
-              </section>
+              {/* ĐƯA BIỂU ĐỒ RECHARTS THẬT VÀO ĐÂY THAY CHO KHỐI SVG CŨ */}
+              <SensorChart />
 
               <section className="panel">
                 <div className="panel-heading">
@@ -331,6 +275,7 @@ export default function Home() {
                 </p>
               </section>
             </div>
+           
 
             <section className="panel alerts-panel">
               <div className="panel-heading">
@@ -371,15 +316,15 @@ export default function Home() {
     <div className="welcome">
       <div>
         <h2>Live Environmental Monitoring</h2>
-        <p>Monitor environmental conditions inside your swiftlet house.</p>
+        <p>Monitor environmental conditions and live stream inside your swiftlet house.</p>
       </div>
-      <span className="status-pill">● Sensors connected</span>
+      <span className="status-pill">● Sensors & Camera connected</span>
     </div>
 
     <div className="stats-grid">
       <StatCard
         label="Temperature"
-        value="29.5"
+        value={String(currentHouse.temperature)}
         unit="°C"
         note="Normal range: 26–32°C"
         icon="♨"
@@ -387,7 +332,7 @@ export default function Home() {
       />
       <StatCard
         label="Humidity"
-        value="86"
+        value={String(currentHouse.humidity)}
         unit="%"
         note="Target range: 80–90%"
         icon="♧"
@@ -395,7 +340,7 @@ export default function Home() {
       />
       <StatCard
         label="CO₂ Level"
-        value="720"
+        value={String(currentHouse.co2)}
         unit="ppm"
         note="Sample air quality data"
         icon="◉"
@@ -411,130 +356,15 @@ export default function Home() {
       />
     </div>
 
-    <div className="content-grid">
-      {/* Camera và tải video */}
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h3>Swiftlet House Camera</h3>
-            <p>Upload a video to preview</p>
-          </div>
-          <span className="small-tag">Demo</span>
-        </div>
-
-        <div className="camera-placeholder">
-          {!videoUrl ? (
-            <>
-              <div className="camera-symbol">◉</div>
-              <h3>Camera Preview</h3>
-              <p>Chọn video từ máy tính để xem tại đây.</p>
-            </>
-          ) : (
-            <div className="w-full">
-              <video
-                src={videoUrl}
-                controls
-                className="w-full rounded-lg bg-black"
-                style={{ maxHeight: "400px" }}
-              />
-              <p className="mt-2">{videoName}</p>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap justify-center gap-3">
-            <label
-              htmlFor="swiftlet-video"
-              className="upload-button"
-            >
-              📁 Chọn video từ máy tính
-            </label>
-
-            {videoUrl && (
-              <button
-                type="button"
-                className="upload-button"
-                onClick={() => {
-                  setVideoUrl((oldUrl) => {
-                    if (oldUrl) URL.revokeObjectURL(oldUrl);
-                    return "";
-                  });
-                  setVideoName("");
-
-                  const input = document.getElementById(
-                    "swiftlet-video"
-                  ) as HTMLInputElement | null;
-
-                  if (input) input.value = "";
-                }}
-              >
-                ✕ Xóa video
-              </button>
-            )}
-          </div>
-
-          <input
-            id="swiftlet-video"
-            type="file"
-            accept="video/*"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-
-              if (file) {
-                setVideoUrl((oldUrl) => {
-                  if (oldUrl) URL.revokeObjectURL(oldUrl);
-                  return URL.createObjectURL(file);
-                });
-                setVideoName(file.name);
-              }
-            }}
-          />
-        </div>
-
-        {!videoUrl && (
-          <p className="demo-note">
-            Chưa chọn video. Nhấn nút phía trên để tải video từ máy tính.
-          </p>
-        )}
-      </section>
-
-      {/* Trạng thái môi trường */}
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <h3>Environmental Status</h3>
-            <p>Sample sensor readings</p>
-          </div>
-        </div>
-
-        <div className="monitor-row">
-          <span>Temperature</span>
-          <strong>29.5 °C</strong>
-        </div>
-
-        <div className="monitor-row">
-          <span>Humidity</span>
-          <strong>86%</strong>
-        </div>
-
-        <div className="monitor-row">
-          <span>CO₂</span>
-          <strong>720 ppm</strong>
-        </div>
-
-        <div className="monitor-row">
-          <span>Air circulation</span>
-          <strong className="good-text">Normal</strong>
-        </div>
-
-        <div className="monitor-row">
-          <span>Predator detection</span>
-          <strong className="good-text">No demo alert</strong>
-        </div>
-      </section>
+    {/* GIAO DIỆN SONG SONG: Biểu đồ Recharts và Khung Camera Stream ESP32-CAM */}
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "20px", alignItems: "start" }}>
+      <SensorChart />
+      <CameraStream />
     </div>
   </>
 )}
+
+    
 
 
 {activePage === "Control" && (
@@ -692,113 +522,9 @@ export default function Home() {
     </div>
 
     <section className="panel analytics-panel">
-      <div className="panel-heading">
-        <div>
-          <h3>Temperature & Humidity Trend</h3>
-          <p>Biểu đồ biến động các chỉ số theo thời gian</p>
-        </div>
-        <span className="small-tag">Last 7 hours</span>
-      </div>
-
-      <div className="analytics-chart">
-        <svg
-          viewBox="0 0 600 240"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label="Biểu đồ nhiệt độ và độ ẩm minh họa"
-        >
-          {[30, 75, 120, 165, 210].map((y) => (
-            <line
-              key={y}
-              x1="35"
-              y1={y}
-              x2="585"
-              y2={y}
-              stroke="#e7ecf2"
-              strokeWidth="1"
-              strokeDasharray="4 4"
-            />
-          ))}
-
-          <polyline
-            points="35,145 125,115 215,130 305,75 395,95 485,55 585,80"
-            fill="none"
-            stroke="#16856b"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          <polyline
-            points="35,185 125,165 215,175 305,145 395,155 485,125 585,140"
-            fill="none"
-            stroke="#3984cf"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {[
-            [35, 145],
-            [125, 115],
-            [215, 130],
-            [305, 75],
-            [395, 95],
-            [485, 55],
-            [585, 80],
-          ].map(([x, y]) => (
-            <circle
-              key={`temp-${x}`}
-              cx={x}
-              cy={y}
-              r="4"
-              fill="#16856b"
-            />
-          ))}
-
-          {[
-            [35, 185],
-            [125, 165],
-            [215, 175],
-            [305, 145],
-            [395, 155],
-            [485, 125],
-            [585, 140],
-          ].map(([x, y]) => (
-            <circle
-              key={`humidity-${x}`}
-              cx={x}
-              cy={y}
-              r="4"
-              fill="#3984cf"
-            />
-          ))}
-        </svg>
-      </div>
-
-      <div className="chart-times">
-        <span>08:00</span>
-        <span>09:00</span>
-        <span>10:00</span>
-        <span>11:00</span>
-        <span>12:00</span>
-        <span>13:00</span>
-        <span>14:00</span>
-      </div>
-
-      <div className="chart-legend">
-        <span>
-          <i className="legend-dot temperature-dot" />
-          Temperature
-        </span>
-        <span>
-          <i className="legend-dot humidity-dot" />
-          Humidity
-        </span>
-      </div>
-
-      <p className="demo-note">
-        Dữ liệu biểu đồ chỉ mang tính minh họa, chưa lấy từ cảm biến thực tế.
+      <AnalyticsChart />
+      <p className="demo-note" style={{ marginTop: "15px" }}>
+        Biểu đồ phân tích dữ liệu chuyên sâu tích hợp Recharts.
       </p>
     </section>
 
