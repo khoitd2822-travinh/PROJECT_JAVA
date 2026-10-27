@@ -61,6 +61,8 @@ public class TelemetryProcessingService {
             String redisKey = String.format("telemetry:latest:%d:%d", farmId, zoneId);
             redisTemplate.opsForValue().set(redisKey, payload, Duration.ofMinutes(5));
 
+            redisTemplate.opsForValue().set("telemetry:latest", payload, Duration.ofMinutes(5));
+
             log.info("Lưu thành công Telemetry từ Topic [{}]: Temp={}°C, Hum={}%", topic, dto.getTemperature(), dto.getHumidity());
 
         } catch (Exception e) {
