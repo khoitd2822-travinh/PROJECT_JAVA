@@ -38,6 +38,6 @@ mqtt:
 # 5. Cấu hình S3 Storage (Zenko Cloudserver)
 s3:
   endpoint: http://localhost:9000
-  access-key: "123"
-  secret-key: "abc"
+  access-key: "accessKey1"
+  secret-key: "verySecretKey1"
   bucket-name: swiftlet-alerts
