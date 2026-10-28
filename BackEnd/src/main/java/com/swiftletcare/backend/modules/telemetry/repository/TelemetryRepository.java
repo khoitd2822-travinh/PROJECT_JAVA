@@ -6,6 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface SensorTelemetryRepository extends JpaRepository<SensorTelemetry, SensorTelemetryId> {
+public interface TelemetryRepository extends JpaRepository<SensorTelemetry, SensorTelemetryId> {
 
 }

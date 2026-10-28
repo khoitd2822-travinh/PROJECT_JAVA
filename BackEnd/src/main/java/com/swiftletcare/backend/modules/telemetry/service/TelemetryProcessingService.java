@@ -1,12 +1,14 @@
 package com.swiftletcare.backend.modules.telemetry.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.swiftletcare.backend.modules.notification.service.WebSocketBroadcaster;
 import com.swiftletcare.backend.modules.telemetry.dto.TelemetryPayloadDTO;
 import com.swiftletcare.backend.modules.telemetry.entity.SensorTelemetry;
 import com.swiftletcare.backend.modules.telemetry.entity.SensorTelemetryId;
-import com.swiftletcare.backend.modules.telemetry.repository.SensorTelemetryRepository;
+import com.swiftletcare.backend.modules.telemetry.repository.TelemetryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -19,16 +21,18 @@ public class TelemetryProcessingService {
 
     private static final Logger log = LoggerFactory.getLogger(TelemetryProcessingService.class);
 
-    private final SensorTelemetryRepository telemetryRepository;
-    private final StringRedisTemplate redisTemplate;
+    private final TelemetryRepository telemetryRepository;
+    private final RedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final WebSocketBroadcaster webSocketBroadcaster;
 
-    public TelemetryProcessingService(SensorTelemetryRepository telemetryRepository,
-                                      StringRedisTemplate redisTemplate,
-                                      ObjectMapper objectMapper) {
+    public TelemetryProcessingService(TelemetryRepository telemetryRepository,
+                                      RedisTemplate redisTemplate,
+                                      ObjectMapper objectMapper, WebSocketBroadcaster webSocketBroadcaster ) {
         this.telemetryRepository = telemetryRepository;
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.webSocketBroadcaster = webSocketBroadcaster;
     }
 
     public void processTelemetryMessage(String topic, String payload) {
@@ -61,7 +65,7 @@ public class TelemetryProcessingService {
             String redisKey = String.format("telemetry:latest:%d:%d", farmId, zoneId);
             redisTemplate.opsForValue().set(redisKey, payload, Duration.ofMinutes(5));
 
-
+            webSocketBroadcaster.broadcastTelemetry(farmId, zoneId, dto);
 
             log.info("Lưu thành công Telemetry từ Topic [{}]: Temp={}°C, Hum={}%", topic, dto.getTemperature(), dto.getHumidity());
 

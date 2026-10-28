@@ -87,7 +87,18 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- 11. Thư viện WebSocket STOMP Server cho Spring Boot -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
 
+        <!-- 12. Thư viện MinIO Java Client để tạo Presigned URL -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.7</version>
+        </dependency>
 
 
     </dependencies>
