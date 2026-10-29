@@ -1,3 +1,43 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: BackEnd
+
+  # 1. Cấu hình kết nối TimescaleDB (PostgreSQL)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/swiftlet
+    username: swiftlet
+    password: swiftlet123
+    driver-class-name: org.postgresql.Driver
+
+  # 2. Cấu hình JPA / Hibernate
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # 3. Cấu hình Redis Cache
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# 4. Cấu hình MQTT EMQX Broker (Chuẩn bị sẵn cho task TV5 của bạn)
+mqtt:
+  broker-url: tcp://localhost:1883
+  client-id: swiftletcare_backend_consumer
+  topic:
+    telemetry: swiftlet/telemetry/#
+    detection: swiftlet/detection/#
+
+# 5. Cấu hình S3 Storage (Zenko Cloudserver)
+s3:
+  endpoint: http://localhost:9000
+  access-key: "123"
+  secret-key: "abc"
+  bucket-name: swiftlet-alerts

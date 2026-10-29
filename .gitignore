@@ -1,10 +1,21 @@
-HELP.md
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# Environment & Secrets
+.env
+*.env.*
 
-### STS ###
+# Java / Spring Boot / Maven / Gradle
+target/
+build/
+.mvn/wrapper/maven-wrapper.jar
+HELP.md
+
+# IDEs & Editors
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+
+# Eclipse / NetBeans
 .apt_generated
 .classpath
 .factorypath
@@ -12,25 +23,30 @@ target/
 .settings
 .springBeans
 .sts4-cache
-
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
-.vscode/
+# Node.js / Next.js
+node_modules/
+.next/
 
-.idea/
-BackEnd/.idea/
+# Python / AI
+__pycache__/
+.venv/
+*.pt
+*.onnx
+ai/data/*
+!ai/data/.gitkeep
+ai/models/*
+!ai/models/.gitkeep
+
+# Firmware
+.pio/
+
+# System & Media
+.DS_Store
+Thumbs.db
+*.mp4
