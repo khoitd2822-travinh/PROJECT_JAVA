@@ -1,0 +1,5 @@
+ultralytics>=8.3
+opencv-python>=4.9        # tren Docker/Jetson/RPi dung opencv-python-headless
+paho-mqtt>=2.0
+numpy
+lap>=0.5.12               # ByteTrack can thu vien nay
