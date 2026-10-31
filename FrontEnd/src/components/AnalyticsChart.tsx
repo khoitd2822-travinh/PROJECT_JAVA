@@ -21,7 +21,15 @@ export default function AnalyticsChart() {
       const response = await fetch("http://localhost:8080/api/v1/analytics/trend");
       if (!response.ok) throw new Error("Lỗi gọi API Analytics");
       const result = await response.json();
-      setData(result);
+
+// Xử lý bóc tách cấu trúc bọc data từ Backend 
+      if (result.status === 200 && result.data) {
+        const parsedData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
+        setData(Array.isArray(parsedData) ? parsedData : [parsedData]);
+      } else if (Array.isArray(result)) {
+        setData(result);
+      }
+    
     } catch (error) {
       // Dữ liệu mẫu minh họa theo các mốc giờ trong ngày
       setData([

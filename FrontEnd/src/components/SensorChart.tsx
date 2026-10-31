@@ -20,7 +20,16 @@ export default function SensorChart() {
       const response = await fetch("http://localhost:8080/api/v1/telemetry/history?range=24h");
       if (!response.ok) throw new Error("Lỗi gọi API lịch sử");
       const result = await response.json();
-      setData(result);
+
+    // Kiểm tra cấu trúc bọc data mới từ Backend (TV5)
+      if (result.status === 200 && result.data) {
+        const parsedData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
+        // Nếu API trả về dạng mảng lịch sử thì set trực tiếp, nếu là object đơn lẻ thì đưa vào mảng
+        setData(Array.isArray(parsedData) ? parsedData : [parsedData]);
+      } else if (Array.isArray(result)) {
+        // Trường hợp API trả thẳng về mảng
+        setData(result);
+      }
     } catch (error) {
       // Dữ liệu mẫu 24h giả lập 4 chỉ số khi phần cứng/backend chưa sẵn sàng
       setData([
