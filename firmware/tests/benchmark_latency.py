@@ -51,7 +51,19 @@ class SimpleMqttClient:
 
     def connect(self):
         self.sock = socket.create_connection((self.host, self.port), timeout=10)
-        var_header = b'\x00\x04MQTT\x04\x02\x00<\x00' + struct.pack("!H", len(self.client_id)) + self.client_id.encode('utf-8')
+        # Variable header (MQTT 3.1.1):
+        #   Protocol Name  = 0x0004 + b"MQTT"
+        #   Protocol Level = 0x04 (MQTT 3.1.1)
+        #   Connect Flags  = 0x02 (Clean Session)
+        #   Keep Alive     = 0x003C (60s)  <- phai dung 2 byte
+        # Payload: Client ID (2 byte length + utf-8 bytes)
+        var_header = (
+            b'\x00\x04MQTT'
+            b'\x04'          # protocol level 3.1.1
+            b'\x02'          # connect flags: clean session
+            b'\x00\x3C'      # keep alive: 60 giay
+            + struct.pack("!H", len(self.client_id)) + self.client_id.encode('utf-8')
+        )
         remaining_len = len(var_header)
         connect_packet = bytes([0x10]) + encode_remaining_length(remaining_len) + var_header
         self.sock.sendall(connect_packet)
