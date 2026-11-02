@@ -1,0 +1,90 @@
+STT
+Thiết bị
+Chân ESP32 (Gợi ý)
+Chức năng trong Firmware
+1
+Cảm biến SHT30/SHT31 (Nhiệt độ & Độ ẩm)
+GPIO 21 (SDA)
+GPIO 22 (SCL)
+Đọc nhiệt độ và độ ẩm định kỳ mỗi 2 giây. Dữ liệu này dùng để kích hoạt quạt/phun sương. 
+2
+Cảm biến Ánh sáng (LDR / BH1750)
+GPIO 34 (Analog Input)
+Đo cường độ ánh sáng trong nhà yến (nhà yến cần giữ độ tối phù hợp). 
+3
+Cảm biến Khí / CO2 (MQ-135)
+GPIO 35 (Analog Input)
+Giám sát chất lượng không khí, nồng độ khí thải/CO2 từ phân chim. 
+4
+Cảm biến Âm thanh (Microphone analog/I2S)
+GPIO 36 (VP)
+Đo mức cường độ âm thanh xem loa dẫn dụ có đang phát hay bị tắt/hỏng. 
+5
+Relay 1 (Máy phun sương tạo ẩm)
+GPIO 25
+Kích hoạt đóng ngắt máy tạo ẩm khi độ ẩm < 75%. 
+6
+Relay 2 (Quạt hút thông gió hạ nhiệt)
+GPIO 26
+Kích hoạt bật quạt hút khi nhiệt độ > 31°C hoặc CO2 tăng cao. 
+7
+Relay 3 (Thiết bị sưởi ấm / Đèn)
+GPIO 27
+Kích hoạt khi nhiệt độ phòng tụt quá thấp vào ban đêm.
+8
+Đèn LED báo trạng thái / Còi Buzzer
+GPIO 14 (hoặc LED onboard 2)
+Nhấp nháy báo trạng thái kết nối Wi-Fi/MQTT hoặc kêu khi mất mạng/lỗi thiết bị.
+9. Thêm con ESP 32 – CAM  : cam đặt ở cửa 
+KẾ HOẠCH CHI TIẾT 7 TUẦN (7-WEEK SPRINT PLAN)
+Tuần 1: Khởi tạo Hạ tầng, Thiết kế Sơ đồ & Mô phỏng Logic (Task 1, Task 3 cơ bản)
+Mục tiêu: Khóa cấu trúc dự án, hoàn thành mô phỏng phần cứng và dựng sẵn hạ tầng Docker.
+Phân công công việc:
+TV1 & TV2: Thiết kế sơ đồ nguyên lý mạch (Schematics trên Fritzing/EasyEDA); tạo mạch mô phỏng trên Wokwi (ESP32 đọc cảm biến ảo, kích relay); chốt danh sách mua linh kiện. 
+TV3 & TV4: Khảo sát, thu thập dataset video/ảnh chim yến bay qua lỗ và ảnh các loài thú hại (chuột, rắn, cú mèo); dựng môi trường Python trên máy trạm. 
+TV5: Khởi tạo Git Monorepo; viết file docker-compose.yml (EMQX, TimescaleDB, Redis, MinIO); khởi tạo khung dự án Spring Boot 3.x với Java 21. 
+TV6: Dựng khung ứng dụng Web (Next.js) và Mobile App; thiết kế Wireframe/UI bản vẽ các màn hình giám sát và điều khiển. 
+Kết quả cuối tuần 1: File sơ đồ mạch hoàn chỉnh; Docker compose chạy ok. 
+Tuần 2: Lắp ráp Phần cứng cơ sở & Tiền xử lý Dữ liệu AI (Task 1, Task 2)
+Mục tiêu: Bo mạch thật đọc được cảm biến; hoàn thành gán nhãn dữ liệu AI.
+Phân công công việc:
+TV1: Nhận linh kiện thật, hàn/cắm breadboard bo mạch ESP32 với cảm biến SHT30, MQ-135, LDR và Module Relay. 
+TV2: Nạp code cho bo ESP32-CAM phát luồng stream video (MJPEG/HTTP Stream) qua Wi-Fi; viết hàm kết nối MQTT trên ESP32 chính. 
+TV3: Gán nhãn dataset (LabelImg/Roboflow) cho tập dữ liệu chim yến và các loài thiên địch (chuột, rắn, cú mèo). 
+TV4: Viết script Python kết nối và bắt luồng video từ ESP32-CAM (hoặc webcam) qua OpenCV. 
+TV5: Viết cấu hình MqttConfig trên Spring Boot (kênh Inbound nhận dữ liệu từ EMQX Broker); tạo bảng PostgreSQL và Hypertable trên TimescaleDB. 
+TV6: Code giao diện tĩnh (Layout, Navigation, Sidebar) cho Web Admin; cấu hình giao tiếp REST API cơ bản với Backend.
+Tuần 3: Huấn luyện Mô hình AI & Triển khai Lập trình Biên (Task 1, Task 2, Task 3)
+Mục tiêu: ESP32 gửi dữ liệu telemetry lên máy chủ; mô hình YOLOv8 hoàn thành huấn luyện đợt 1. 
+Phân công công việc:
+TV1: Hoàn thiện thuật toán điều khiển cục bộ (Offline Logic: tự động kích hoạt quạt/phun sương theo ngưỡng vi khí hậu khi mất mạng). 
+TV2: Hoàn thiện đóng gói chuỗi JSON telemetry và publish định kỳ lên topic swiftlet/telemetry/#. 
+TV3: Huấn luyện mô hình YOLOv8n trên Google Colab/GPU với dataset đã gán nhãn; đánh giá chỉ số mAP50, Precision, Recall. 
+TV4: Xây dựng pipeline tích hợp ByteTrack để gán ID theo dõi từng đối tượng theo thời gian thực. 
+TV5: Viết tầng Service và Repository lưu trữ dữ liệu cảm biến vào TimescaleDB; cập nhật trạng thái mới nhất vào Redis Cache. 
+TV6: Xây dựng biểu đồ hiển thị thông số môi trường (Nhiệt độ, Độ ẩm, CO2, Ánh sáng) trên giao diện Web. 
+Tuần 4: Hoàn thiện Pipeline Đếm Chim, Cảnh báo & Điều khiển Can thiệp (Task 2, Task 3)
+Mục tiêu: Đếm được chim In/Out qua vạch ảo; Web/App điều khiển được thiết bị thật (Manual Override). 
+Phân công công việc:
+TV1 & TV2: Lập trình hàm nhận lệnh điều khiển (Subscribe topic swiftlet/command/#) trên ESP32 để đóng/ngắt relay theo lệnh từ server; thử nghiệm kiểm tra tính năng đo tín hiệu âm thanh loa dẫn dụ. 
+TV3 & TV4: Hoàn thiện thuật toán Vạch ảo (Virtual Crossing Line): chim bay từ ngoài vào $\to$ In++, từ trong ra $\to$ Out++; lập trình logic chụp snapshot ảnh khi phát hiện thú hại và đẩy lên MinIO Storage. 
+TV5: Xây dựng API điều khiển ghi đè (Manual Override Controller); cấu hình WebSocket STOMP để đẩy dữ liệu cảm biến và alert đếm chim tức thì về frontend. 
+TV6: Tích hợp WebSocket client (STOMP.js) trên Frontend để cập nhật biểu đồ real-time < 2s; làm nút bấm gạt On/Off điều khiển thiết bị từ xa. 
+Tuần 5: Đồng bộ Hóa Toàn Hệ thống & Ứng dụng Di động (Task 3, Task 4)
+Mục tiêu: Toàn bộ luồng hoạt động thông suốt từ Phần cứng $\to$ AI $\to$ Backend $\to$ Web & Mobile App. 
+Phân công công việc:
+TV1 & TV2: Đóng gói mạch ESP32 và rơ-le vào hộp kỹ thuật cố định; kiểm thử độ bền kết nối và cơ chế tự động khôi phục Wi-Fi/MQTT khi mất kết nối.
+TV3 & TV4: Tối ưu hóa FPS của pipeline AI trên máy trạm; đóng gói mã nguồn Python Edge thành service chạy tự động. 
+TV5: Hoàn thiện module xác thực người dùng (JWT, Role Admin/Owner); cấu hình dịch vụ bắn thông báo đẩy (Firebase Cloud Messaging - FCM / Telegram Bot). 
+TV6: Hoàn thiện Mobile App: Màn hình theo dõi số lượng chim In/Out trong ngày, màn hình nhận thông báo khẩn cấp kèm ảnh chụp thú hại. 
+Tuần 6: Thực nghiệm Hệ thống, Đo đạc Chỉ số & Tối ưu (Task 5)
+Mục tiêu: Thu thập số liệu thực nghiệm (độ trễ, độ chính xác) phục vụ viết báo cáo và slide. 
+Phân công công việc:
+Cả nhóm: Dựng mô hình không gian demo hoàn chỉnh (cụm cửa thu chim có camera + cụm vi khí hậu có quạt, cảm biến và máy tạo ẩm mini). 
+TV1 & TV2: Đo đạc độ trễ phản hồi đóng ngắt rơ-le và độ trễ truyền tin MQTT; kiểm thử kịch bản ngắt mạng xem mạch có duy trì tự điều khiển không (Offline Resiliency). 
+TV3 & TV4: Kiểm thử độ chính xác của mô hình đếm chim (so sánh số đếm AI với số đếm mắt thường để tính sai số %); đo FPS trung bình. 
+TV5 & TV6: Đo độ trễ cập nhật dữ liệu từ cảm biến lên Web/App qua WebSocket (chứng minh chỉ tiêu < 2 giây); kiểm tra thời gian nhận cảnh báo khi có thú hại (chỉ tiêu 3-5 giây). 
+Tuần 7: Đóng gói Sản phẩm
+Mục tiêu: Hoàn thiện tài liệu thuyết minh đồ án (.docx), slide báo cáo và kịch bản demo trơn tru.
+Báo cáo (bối cảnh, thiết kế, triển khai, thực nghiệm, hạn chế, hướng phát triển), 
+Trình bày README.

@@ -128,8 +128,28 @@ Cả ba đều dùng `#ifndef` nên biến định nghĩa từ `build_flags` s�
 Nếu thư mục dự án chứa ký tự đặc biệt (ví dụ `Tài liệu`), bước **link** của
 PlatformIO có thể fail với lỗi `cannot find ...tmp: Invalid argument`. Đây là
 giới hạn của toolchain `xtensa-esp-elf`, **không liên quan** tới mã nguồn.
-Cách xử lý: build trong thư mục có đường dẫn ASCII thuần (ví dụ clone repo vào
-`C:\dev\PROJECT_JAVA`).
+
+**Cách 1 — Junction (khuyến nghị, giữ nguyên repo ở OneDrive):**
+
+Tạo một *junction* (shortcut thư mục) tới đường dẫn ASCII thuần, rồi build
+từ đó. File `.pio` vẫn nằm trong thư mục gốc nên không tốn dung lượng hai bản:
+
+```powershell
+cmd /c mklink /J "C:\pio_ascii\esp32-main" "<đường dẫn repo>\firmware\esp32-main"
+cmd /c mklink /J "C:\pio_ascii\esp32-cam"  "<đường dẫn repo>\firmware\esp32-cam"
+
+cd C:\pio_ascii\esp32-main && pio run
+cd C:\pio_ascii\esp32-cam  && pio run
+```
+
+**Cách 2 — Clone repo vào đường dẫn ASCII thuần:**
+
+```powershell
+git clone <repo> C:\dev\PROJECT_JAVA
+```
+
+> Lưu ý: dùng `mklink /J` (junction) chứ **không** dùng `mklink /D` (symlink).
+> Symlink yêu cầu bật Developer Mode / quyền admin trên Windows.
 
 ## Chạy kiểm tra độ trễ
 
