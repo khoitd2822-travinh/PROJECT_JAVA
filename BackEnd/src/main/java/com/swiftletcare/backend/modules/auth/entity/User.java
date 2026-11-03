@@ -2,17 +2,17 @@ package com.swiftletcare.backend.modules.auth.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "users", uniqueConstraints = {
-        @UniqueConstraint(columnNames = "username"),
-        @UniqueConstraint(columnNames = "email")
-})
-@Data
+@Table(name = "users", uniqueConstraints = {@UniqueConstraint(columnNames = "email")})
+@Getter
+@Setter
 @NoArgsConstructor
 public class User {
     @Id
