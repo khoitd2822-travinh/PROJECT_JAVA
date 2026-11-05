@@ -13,23 +13,43 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
 async function handleRegister(e: React.FormEvent) {
   e.preventDefault();
+
+  if (isSubmitting) return;
+
+  setErrorMessage("");
+
   if (password !== confirmPassword) {
-    alert("Mật khẩu nhập lại không khớp!");
-    return;
-  }
-  if (password.length < 8) {
-    alert("Mật khẩu phải có ít nhất 8 ký tự.");
+    setErrorMessage("Mật khẩu nhập lại không khớp!");
     return;
   }
 
+  if (password.length < 8) {
+    setErrorMessage("Mật khẩu phải có ít nhất 8 ký tự.");
+    return;
+  }
+
+  setIsSubmitting(true);
+
   try {
     await authApi.register({ fullName, email, password });
-    alert("Đăng ký thành công! Vui lòng đăng nhập.");
-    router.push("/login");
+
+    setSuccessMessage("Đăng ký thành công!");
+
+    // Hiển thị thông báo 1,5 giây rồi chuyển sang đăng nhập.
+    setTimeout(() => {
+      router.replace("/login");
+    }, 1500);
   } catch (error) {
-    alert(error instanceof Error ? error.message : "Đăng ký thất bại");
+    setErrorMessage(
+      error instanceof Error ? error.message : "Đăng ký thất bại"
+    );
+    setIsSubmitting(false);
   }
 }
 
@@ -63,7 +83,7 @@ async function handleRegister(e: React.FormEvent) {
 
           <input
             type="password"
-            placeholder="🔒 Mật khẩu"
+            placeholder="Mật khẩu"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -73,7 +93,7 @@ async function handleRegister(e: React.FormEvent) {
           <div style={{ position: "relative" }}>
             <input
               type={showPassword ? "text" : "password"}
-              placeholder="🔒 Nhập lại mật khẩu"
+              placeholder="Nhập lại mật khẩu"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
@@ -88,9 +108,51 @@ async function handleRegister(e: React.FormEvent) {
             </button>
           </div>
 
-          <button type="submit" style={buttonStyle}>
-            Đăng ký
-          </button>
+          {errorMessage && (
+  <p role="alert" style={{ color: "#dc2626", margin: 0 }}>
+    {errorMessage}
+  </p>
+)}
+
+<button
+  type="submit"
+  disabled={isSubmitting}
+  style={{
+    ...buttonStyle,
+    opacity: isSubmitting ? 0.7 : 1,
+    cursor: isSubmitting ? "not-allowed" : "pointer",
+  }}
+>
+  {isSubmitting ? "Đang xử lý..." : "Đăng ký"}
+</button>
+
+{successMessage && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      zIndex: 9999,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255, 255, 255, 0.92)",
+      padding: "24px",
+    }}
+  >
+    <p
+      role="status"
+      style={{
+        color: "#16856b",
+        fontSize: "24px",
+        fontWeight: 600,
+        textAlign: "center",
+        margin: 0,
+      }}
+    >
+      {successMessage}
+    </p>
+  </div>
+)}
         </form>
 
         <div style={{ textAlign: "center", marginTop: "16px", fontSize: "14px" }}>

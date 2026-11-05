@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { houseApi } from "../lib/api";
+import { telemetryApi } from "../lib/api";
 import { SwiftletHouse } from "../data/mockData";
 import SensorChart from "../components/SensorChart";
 import CameraStream from "../components/CameraStream";
@@ -38,51 +38,110 @@ export default function Home() {
 
   const [userName, setUserName] = useState("Administrator"); 
   useEffect(() => {
-    const auth = localStorage.getItem("isAuthenticated");
-    if (!auth) {
-      router.push("/login");
-    } else {
-      // Lấy thông tin tài khoản vừa đăng nhập
-      const userStr = localStorage.getItem("currentUser");
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        if (user.fullName) {
-          setUserName(user.fullName); // Cập nhật tên người dùng
-        }
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    router.replace("/login");
+    return;
+  }
+
+  const userStr = localStorage.getItem("currentUser");
+
+  if (userStr) {
+    try {
+      const user = JSON.parse(userStr);
+
+      if (user.fullName) {
+        setUserName(user.fullName);
       }
+    } catch {
+      localStorage.removeItem("currentUser");
     }
-  }, [router]);
+  }
+}, [router]);
 
  const handleLogout = () => {
   localStorage.removeItem("token");
   localStorage.removeItem("currentUser");
-  router.push("/login");
+  localStorage.removeItem("isAuthenticated");
+  router.replace("/login");
 };
-  // Gọi REST API Service khi load trang
-  useEffect(() => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    router.push("/login");
-    return;
-  }
-  const userStr = localStorage.getItem("currentUser");
-  if (userStr) {
-    const user = JSON.parse(userStr);
-    if (user.fullName) setUserName(user.fullName);
-  }
-}, [router]);
-
+ 
   
 // Thêm state quản lý tầng được chọn
   const [selectedHouseIndex, setSelectedHouseIndex] = useState(0);
 
-  // Lấy dữ liệu của tầng đang chọn (mặc định Tầng 1 index = 0)
-  const currentHouse = houses[selectedHouseIndex] || houses[0] || {
-    temperature: 28.4,
-    humidity: 82.5,
-    co2: 650,
-    light: 120,
+const [currentHouse, setCurrentHouse] = useState({
+  temperature: "--",
+  humidity: "--",
+  co2: "--",
+  light: "--",
+});
+
+const [telemetryMessage, setTelemetryMessage] = useState(
+  "Đang lấy dữ liệu cảm biến..."
+);
+
+useEffect(() => {
+  let cancelled = false;
+  let inFlight = false;
+
+  function formatReading(value: unknown, decimals: number): string {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return "--";
+    }
+
+    return value.toFixed(decimals);
+  }
+
+  async function loadLatest() {
+    if (inFlight || !localStorage.getItem("token")) return;
+
+    inFlight = true;
+
+    try {
+      // Board hiện gửi farmId=1, zoneId=1.
+      const data = await telemetryApi.latest(1, 1);
+
+      if (cancelled) return;
+
+      setCurrentHouse({
+  temperature: formatReading(data?.temp, 2),
+  humidity: formatReading(data?.hum, 2),
+  co2: formatReading(data?.co2, 0),
+  light: formatReading(data?.light, 0),
+});
+
+      setTelemetryMessage(
+        `Lấy dữ liệu lúc ${new Date().toLocaleTimeString("vi-VN")}`
+      );
+    } catch (error) {
+      if (cancelled) return;
+
+      // Xóa số cũ khi không lấy được dữ liệu.
+      setCurrentHouse({
+        temperature: "--",
+        humidity: "--",
+        co2: "--",
+        light: "--",
+      });
+
+      setTelemetryMessage("Không lấy được dữ liệu cảm biến.");
+      console.error(error);
+    } finally {
+      inFlight = false;
+    }
+  }
+
+  loadLatest();
+
+  const timer = setInterval(loadLatest, 2000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(timer);
   };
+}, []);
 
   function toggleDevice(index: number) {
     setDevices((current) =>
@@ -159,6 +218,9 @@ export default function Home() {
             </div>
           </div>
         </header>
+        <p style={{ color: "#64748b", fontSize: "13px", marginTop: "12px" }}>
+  {telemetryMessage}
+</p>
 
         {activePage === "Dashboard" && (
           <>
