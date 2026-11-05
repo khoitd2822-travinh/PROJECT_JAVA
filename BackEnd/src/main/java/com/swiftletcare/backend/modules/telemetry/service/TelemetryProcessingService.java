@@ -22,15 +22,15 @@ public class TelemetryProcessingService {
     private static final Logger log = LoggerFactory.getLogger(TelemetryProcessingService.class);
 
     private final TelemetryRepository telemetryRepository;
-    private final RedisTemplate redisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final WebSocketBroadcaster webSocketBroadcaster;
 
     public TelemetryProcessingService(TelemetryRepository telemetryRepository,
-                                      RedisTemplate redisTemplate,
+                                      StringRedisTemplate stringRedisTemplate,
                                       ObjectMapper objectMapper, WebSocketBroadcaster webSocketBroadcaster ) {
         this.telemetryRepository = telemetryRepository;
-        this.redisTemplate = redisTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.webSocketBroadcaster = webSocketBroadcaster;
     }
@@ -63,7 +63,7 @@ public class TelemetryProcessingService {
             telemetryRepository.save(telemetry);
 
             String redisKey = String.format("telemetry:latest:%d:%d", farmId, zoneId);
-            redisTemplate.opsForValue().set(redisKey, payload, Duration.ofMinutes(5));
+            stringRedisTemplate.opsForValue().set(redisKey, payload, Duration.ofMinutes(5));
 
             webSocketBroadcaster.broadcastTelemetry(farmId, zoneId, dto);
 

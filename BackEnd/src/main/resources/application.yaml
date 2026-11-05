@@ -41,3 +41,13 @@ s3:
   access-key: "accessKey1"
   secret-key: "verySecretKey1"
   bucket-name: swiftlet-alerts
+
+# 6. JWT — chuỗi secret phải dài ít nhất 32 ký tự
+jwt:
+  secret: "swiftletcare-dev-secret-key-32b!!"
+  expirationMs: 86400000 #//token 24h
+# 7. Zalo OA — để trống vẫn chạy được; chỉ lỗi khi bấm gửi cảnh báo
+zalo:
+  oa:
+    access-token: ""
+    user-id: ""

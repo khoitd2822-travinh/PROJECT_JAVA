@@ -59,12 +59,36 @@ export const farmApi = {
   },
 };
 export const telemetryApi = {
+  async latest(farmId = 1, zoneId = 1) {
+    const res = await fetch(
+      `${API_BASE_URL}/telemetry/latest?farmId=${farmId}&zoneId=${zoneId}`,
+      {
+        headers: authHeaders(),
+        cache: "no-store",
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Không lấy được dữ liệu mới nhất: ${res.status}`);
+    }
+
+    const result = await res.json();
+
+    return typeof result.data === "string"
+      ? JSON.parse(result.data)
+      : result.data;
+  },
+
   async history(farmId = 1, zoneId = 1, range = "24h") {
     const res = await fetch(
       `${API_BASE_URL}/telemetry/history?farmId=${farmId}&zoneId=${zoneId}&range=${range}`,
       { headers: authHeaders() }
     );
-    if (!res.ok) throw new Error("Không tải được lịch sử");
+
+    if (!res.ok) {
+      throw new Error("Không tải được lịch sử");
+    }
+
     return res.json();
   },
 };
