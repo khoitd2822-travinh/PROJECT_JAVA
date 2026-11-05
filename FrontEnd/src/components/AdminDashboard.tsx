@@ -1,7 +1,8 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { Client } from '@stomp/stompjs';
+import React, { useEffect, useState } from "react";
+import { Client } from "@stomp/stompjs";
+import { birdApi, farmApi } from "../lib/api";
 
 interface Device {
   id: number;
@@ -24,120 +25,112 @@ export default function AdminDashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [birdCount, setBirdCount] = useState<number>(0);
   const [logs, setLogs] = useState<BirdLog[]>([]);
+  const [message, setMessage] = useState("");
 
-  // 1. Gọi REST API lấy danh sách thiết bị và lịch sử ban đầu
   useEffect(() => {
-    fetch('http://localhost:8080/api/v1/farm/devices?farmId=1&zoneId=1')
-      .then((res) => res.json())
+    farmApi
+      .getDevices(1, 1)
       .then((data) => {
-        if (data.status === 200) setDevices(data.data);
+        if (data.status === 200 && Array.isArray(data.data)) setDevices(data.data);
       })
-      .catch((err) => console.error('Lỗi tải thiết bị:', err));
+      .catch((err) => {
+        console.error("Lỗi tải thiết bị:", err);
+        setMessage("Không tải được thiết bị. Hãy đăng nhập lại.");
+      });
 
-    fetch('http://localhost:8080/api/v1/bird-tracking/logs?farmId=1&zoneId=1')
-      .then((res) => res.json())
+    birdApi
+      .logs(1, 1)
       .then((data) => {
-        if (data.status === 200) setLogs(data.data);
+        if (data.status === 200 && Array.isArray(data.data)) setLogs(data.data);
       })
-      .catch((err) => console.error('Lỗi tải lịch sử đếm chim:', err));
+      .catch((err) => console.error("Lỗi tải lịch sử đếm chim:", err));
   }, []);
 
-  // 2. Tích hợp WebSocket Client bằng @stomp/stompjs để nhận dữ liệu real-time
   useEffect(() => {
     const stompClient = new Client({
-      brokerURL: 'ws://localhost:8080/ws-swiftlet', // Đường dẫn WebSocket kết nối xuống Backend Spring Boot
+      brokerURL: "ws://localhost:8080/ws-swiftlet",
       reconnectDelay: 5000,
       onConnect: () => {
-        console.log('Đã kết nối thành công với WebSocket Server!');
-
-        // Lắng nghe kênh realtime từ backend đẩy về
-        stompClient.subscribe('/topic/bird-tracking', (message) => {
-          const newLog: BirdLog = JSON.parse(message.body);
-          setBirdCount(newLog.birdCount); // Nhảy số lượng chim real-time trên giao diện
-          setLogs((prev) => [newLog, ...prev]); // Thêm log mới vào đầu danh sách
+        stompClient.subscribe("/topic/alerts", (frame) => {
+          const alert = JSON.parse(frame.body);
+          if (alert.birdCount == null) return;
+          setBirdCount(alert.birdCount);
+          setLogs((prev) => [alert, ...prev]);
         });
       },
       onStompError: (frame) => {
-        console.error('Lỗi WebSocket STOMP: ' + frame.headers['message']);
+        console.error("Lỗi WebSocket STOMP: " + frame.headers["message"]);
       },
     });
 
     stompClient.activate();
-
-    // Cleanup khi component unmount
     return () => {
       stompClient.deactivate();
     };
   }, []);
 
-  // 3. Xử lý sự kiện bấm công tắc gạt On/Off để gọi API điều khiển thiết bị
   const handleToggleDevice = async (deviceId: number, currentStatus: string) => {
-    const newCommand = currentStatus === 'ON' ? 'OFF' : 'ON';
-
+    const newCommand: "ON" | "OFF" = currentStatus === "ON" ? "OFF" : "ON";
     try {
-      const response = await fetch('http://localhost:8080/api/v1/farm/devices/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, command: newCommand }),
-      });
-
-      const result = await response.json();
+      const result = await farmApi.control(deviceId, newCommand);
       if (result.status === 200) {
-        // Cập nhật lại state giao diện ngay lập tức sau khi gọi API thành công
         setDevices((prev) =>
           prev.map((d) => (d.id === deviceId ? { ...d, status: newCommand } : d))
         );
+        setMessage(result.message || "Đã gửi lệnh");
       }
     } catch (error) {
-      console.error('Lỗi khi gửi lệnh điều khiển thiết bị:', error);
+      console.error("Lỗi khi gửi lệnh điều khiển thiết bị:", error);
+      setMessage("Gửi lệnh thất bại. Kiểm tra EMQX và token đăng nhập.");
     }
   };
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">SwiftletCare Admin Dashboard</h1>
+      {message ? <p style={{ color: "#9a3412", marginBottom: 12 }}>{message}</p> : null}
 
-      {/* Widget hiển thị số lượng chim nhảy số Real-time */}
       <div className="p-5 bg-blue-50 border border-blue-200 rounded-lg mb-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-blue-800">Số lượng chim hiện tại (Real-time WebSocket):</h2>
-        <p className="text-4xl font-extrabold text-blue-600 mt-2">{birdCount} <span className="text-xl font-normal text-gray-600">con</span></p>
+        <h2 className="text-lg font-semibold text-blue-800">Số lượng chim hiện tại</h2>
+<p className="text-4xl font-extrabold text-blue-600 mt-2">
+          {birdCount} <span className="text-xl font-normal text-gray-600">con</span>
+        </p>
       </div>
 
-      {/* Khu vực quản lý thiết bị phần cứng & Công tắc gạt On/Off */}
       <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Quản lý & Điều khiển thiết bị</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {devices.map((device) => (
-            <div key={device.id} className="p-4 border rounded-lg shadow-sm bg-white flex justify-between items-center">
-              <div>
-                <h3 className="font-semibold text-gray-800">{device.name}</h3>
-                <p className="text-sm text-gray-500">Loại: {device.deviceType}</p>
-                <p className="text-sm mt-1">
-                  Trạng thái:{' '}
-                  <span className={device.status === 'ON' ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>
-                    {device.status}
-                  </span>
-                </p>
+        <h2 className="text-xl font-semibold mb-4">Quản lý và điều khiển thiết bị</h2>
+        {devices.length === 0 ? (
+          <p className="text-gray-500">Chưa có thiết bị trong nhà yến 1 / tầng 1.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {devices.map((device) => (
+              <div key={device.id} className="p-4 border rounded-lg shadow-sm bg-white flex justify-between items-center">
+                <div>
+                  <h3 className="font-semibold text-gray-800">{device.name}</h3>
+                  <p className="text-sm text-gray-500">Loại: {device.deviceType}</p>
+                  <p className="text-sm mt-1">
+                    Trạng thái:{" "}
+                    <span className={device.status === "ON" ? "text-green-600 font-bold" : "text-red-600 font-bold"}>
+                      {device.status}
+                    </span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleToggleDevice(device.id, device.status)}
+                  className={`px-4 py-2 rounded-md text-white font-medium transition ${
+                    device.status === "ON" ? "bg-red-500 hover:bg-red-600" : "bg-green-500 hover:bg-green-600"
+                  }`}
+                >
+                  {device.status === "ON" ? "Tắt (OFF)" : "Bật (ON)"}
+                </button>
               </div>
-              {/* Nút bấm công tắc gạt On/Off */}
-              <button
-                onClick={() => handleToggleDevice(device.id, device.status)}
-                className={`px-4 py-2 rounded-md text-white font-medium transition ${
-                  device.status === 'ON' 
-                    ? 'bg-red-500 hover:bg-red-600' 
-                    : 'bg-green-500 hover:bg-green-600'
-                }`}
-              >
-                {device.status === 'ON' ? 'Tắt (OFF)' : 'Bật (ON)'}
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Bảng lịch sử đếm chim & cảnh báo */}
       <div>
-        <h2 className="text-xl font-semibold mb-4">Lịch sử đếm chim & Cảnh báo</h2>
+        <h2 className="text-xl font-semibold mb-4">Lịch sử đếm chim và cảnh báo</h2>
         <div className="border rounded-lg overflow-hidden bg-white shadow-sm">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -151,8 +144,8 @@ export default function AdminDashboard() {
             </thead>
             <tbody>
               {logs.length > 0 ? (
-                logs.map((log) => (
-                  <tr key={log.id} className="border-b hover:bg-gray-50">
+                logs.map((log, index) => (
+                  <tr key={`${log.id ?? "live"}-${index}`} className="border-b hover:bg-gray-50">
                     <td className="p-3">{log.id}</td>
                     <td className="p-3 font-semibold">{log.birdCount}</td>
                     <td className="p-3">{log.eventType}</td>
@@ -162,7 +155,7 @@ export default function AdminDashboard() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="p-4 text-center text-gray-500">
+<td colSpan={5} className="p-4 text-center text-gray-500">
                     Chưa có dữ liệu lịch sử nào.
                   </td>
                 </tr>

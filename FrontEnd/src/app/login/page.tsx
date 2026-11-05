@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { authApi } from "../../lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,30 +11,28 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
+  const [error, setError] = useState("");
 
-function handleLogin(e: React.FormEvent) {
-  e.preventDefault();
-  
-  // 1. Lấy danh sách tài khoản đã đăng ký trong bộ nhớ LocalStorage
-  const registeredUsers = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-  
-  // 2. Kiểm tra xem danh sách có tài khoản nào trùng khớp Email/SĐT và Mật khẩu hay không
-  const user = registeredUsers.find(
-    (u: any) => (u.email === email || u.phone === email) && u.password === password
-  );
-
-  // 3. Nếu KHÔNG tìm thấy -> Báo lỗi ngay lập tức, bắt buộc người dùng phải bấm Đăng ký
-  if (!user) {
-    alert("Tài khoản không tồn tại hoặc mật khẩu không chính xác! Vui lòng đăng ký tài khoản mới.");
-    return; // Dừng lại, không cho phép chuyển trang Dashboard
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      const data = await authApi.login(email, password);
+      localStorage.setItem("token", data.token);
+      localStorage.setItem(
+        "currentUser",
+        JSON.stringify({
+          id: data.id,
+          fullName: data.fullName,
+          email: data.email,
+          roles: data.roles,
+        })
+      );
+      router.push("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Đăng nhập thất bại");
+    }
   }
-
-  // 4. Nếu ĐÃ ĐĂNG KÝ -> Lưu thông tin và chuyển hướng vào Dashboard
-  localStorage.setItem("isAuthenticated", "true");
-  localStorage.setItem("currentUser", JSON.stringify(user));
-  
-  router.push("/");
-}
 
   return (
     <div style={containerStyle}>
@@ -45,25 +44,23 @@ function handleLogin(e: React.FormEvent) {
         </div>
 
         <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <div>
-            <input
-              type="text"
-              name="email"                 
-              autoComplete="email"
-              placeholder="✉ Email / SĐT"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={inputStyle}
-            />
-          </div>
+          <input
+            type="email"
+            name="email"
+            autoComplete="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            style={inputStyle}
+          />
 
           <div style={{ position: "relative" }}>
             <input
               type={showPassword ? "text" : "password"}
-              name="password"              
+              name="password"
               autoComplete="current-password"
-              placeholder="🔒 Mật khẩu"
+              placeholder="Mật khẩu"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -88,13 +85,13 @@ function handleLogin(e: React.FormEvent) {
             <label htmlFor="remember">Ghi nhớ đăng nhập</label>
           </div>
 
-          <button type="submit" style={buttonStyle}>
+          {error ? <p style={{ color: "#d9534f", margin: 0, fontSize: "14px" }}>{error}</p> : null}
+<button type="submit" style={buttonStyle}>
             Đăng nhập
           </button>
         </form>
 
-        <div style={{ textAlign: "center", marginTop: "16px", fontSize: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          <a href="#" style={{ color: "#666", textDecoration: "none" }}>Quên mật khẩu?</a>
+        <div style={{ textAlign: "center", marginTop: "16px", fontSize: "14px" }}>
           <p style={{ color: "#666", margin: 0 }}>
             Chưa có tài khoản?{" "}
             <Link href="/register" style={{ color: "#16856b", fontWeight: "bold" }}>
@@ -107,7 +104,6 @@ function handleLogin(e: React.FormEvent) {
   );
 }
 
-// Inline Styles hỗ trợ giao diện nhanh chuẩn đẹp
 const containerStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "center",
@@ -159,4 +155,4 @@ const eyeButtonStyle: React.CSSProperties = {
   border: "none",
   cursor: "pointer",
   fontSize: "16px",
-};  
+};

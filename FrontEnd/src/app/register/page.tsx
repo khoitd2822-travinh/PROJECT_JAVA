@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { authApi } from "../../lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,29 +13,24 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  function handleRegister(e: React.FormEvent) {
+async function handleRegister(e: React.FormEvent) {
   e.preventDefault();
   if (password !== confirmPassword) {
     alert("Mật khẩu nhập lại không khớp!");
     return;
   }
-
-  // 1. Đọc danh sách tài khoản hiện có
-  const registeredUsers = JSON.parse(localStorage.getItem("registeredUsers") || "[]");
-  
-  // 2. Kiểm tra xem Email/SĐT này đã được dùng chưa
-  if (registeredUsers.some((u: any) => u.email === email)) {
-    alert("Email/SĐT này đã được đăng ký!");
+  if (password.length < 8) {
+    alert("Mật khẩu phải có ít nhất 8 ký tự.");
     return;
   }
 
-  // 3. Thêm tài khoản mới vào danh sách và lưu lại
-  const newUser = { fullName, email, password };
-  registeredUsers.push(newUser);
-  localStorage.setItem("registeredUsers", JSON.stringify(registeredUsers));
-
-  alert("Đăng ký thành công! Vui lòng đăng nhập.");
-  router.push("/login");
+  try {
+    await authApi.register({ fullName, email, password });
+    alert("Đăng ký thành công! Vui lòng đăng nhập.");
+    router.push("/login");
+  } catch (error) {
+    alert(error instanceof Error ? error.message : "Đăng ký thất bại");
+  }
 }
 
   return (

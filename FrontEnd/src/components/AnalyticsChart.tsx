@@ -11,50 +11,65 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { telemetryApi } from "../lib/api";
+
+type AnalyticsPoint = {
+  time: string;
+  temperature: number;
+  humidity: number;
+};
+
+const fallback: AnalyticsPoint[] = [
+  { time: "08:00", temperature: 29.0, humidity: 85 },
+  { time: "09:00", temperature: 29.5, humidity: 86 },
+  { time: "10:00", temperature: 30.1, humidity: 82 },
+  { time: "11:00", temperature: 31.0, humidity: 79 },
+  { time: "12:00", temperature: 31.5, humidity: 76 },
+  { time: "13:00", temperature: 30.8, humidity: 80 },
+  { time: "14:00", temperature: 29.9, humidity: 84 },
+];
+
+function formatTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
 
 export default function AnalyticsChart() {
-  const [data, setData] = useState([]);
-
-  const fetchAnalyticsData = async () => {
-    try {
-      // Sau này khi TV5 làm xong API, chỉ cần trỏ vào đây
-      const response = await fetch("http://localhost:8080/api/v1/analytics/trend");
-      if (!response.ok) throw new Error("Lỗi gọi API Analytics");
-      const result = await response.json();
-
-// Xử lý bóc tách cấu trúc bọc data từ Backend 
-      if (result.status === 200 && result.data) {
-        const parsedData = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
-        setData(Array.isArray(parsedData) ? parsedData : [parsedData]);
-      } else if (Array.isArray(result)) {
-        setData(result);
-      }
-    
-    } catch (error) {
-      // Dữ liệu mẫu minh họa theo các mốc giờ trong ngày
-      setData([
-        { time: "08:00", temperature: 29.0, humidity: 85 },
-        { time: "09:00", temperature: 29.5, humidity: 86 },
-        { time: "10:00", temperature: 30.1, humidity: 82 },
-        { time: "11:00", temperature: 31.0, humidity: 79 },
-        { time: "12:00", temperature: 31.5, humidity: 76 },
-        { time: "13:00", temperature: 30.8, humidity: 80 },
-        { time: "14:00", temperature: 29.9, humidity: 84 },
-      ] as any);
-    }
-  };
+  const [data, setData] = useState<AnalyticsPoint[]>([]);
 
   useEffect(() => {
-    fetchAnalyticsData();
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const result = await telemetryApi.history(1, 1, "24h");
+        const raw = Array.isArray(result?.data) ? result.data : [];
+        const points: AnalyticsPoint[] = raw.map((row: Record<string, number | string>) => ({
+          time: formatTime(String(row.time ?? "")),
+          temperature: Number(row.temperature ?? 0),
+          humidity: Number(row.humidity ?? 0),
+        }));
+        if (!cancelled) setData(points.length > 0 ? points : fallback);
+      } catch (error) {
+        console.warn("Chưa lấy được analytics, dùng dữ liệu mẫu:", error);
+        if (!cancelled) setData(fallback);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "600" }}>
-          📊 Biểu đồ Biến động Nhiệt độ & Độ ẩm (Analytics)
+          Biểu đồ biến động nhiệt độ và độ ẩm
         </h3>
-        <p style={{ fontSize: "13px", color: "#64748b" }}>Phân tích xu hướng môi trường theo thời gian thực</p>
+        <p style={{ fontSize: "13px", color: "#64748b" }}>Cùng nguồn lịch sử 24 giờ với biểu đồ cảm biến</p>
       </div>
 
       <ResponsiveContainer width="100%" height={300}>
@@ -64,11 +79,10 @@ export default function AnalyticsChart() {
           <YAxis stroke="#64748b" />
           <Tooltip contentStyle={{ backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #cbd5e1" }} />
           <Legend />
-
-          <Line type="monotone" dataKey="temperature" name="Nhiệt độ trung bình (°C)" stroke="#16856b" strokeWidth={3} dot={true} />
-          <Line type="monotone" dataKey="humidity" name="Độ ẩm trung bình (%)" stroke="#3984cf" strokeWidth={3} dot={true} />
+          <Line type="monotone" dataKey="temperature" name="Nhiệt độ trung bình (°C)" stroke="#16856b" strokeWidth={3} dot />
+          <Line type="monotone" dataKey="humidity" name="Độ ẩm trung bình (%)" stroke="#3984cf" strokeWidth={3} dot />
         </LineChart>
-      </ResponsiveContainer>
+</ResponsiveContainer>
     </div>
   );
 }

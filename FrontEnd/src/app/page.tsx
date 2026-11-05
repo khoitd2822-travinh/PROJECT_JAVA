@@ -53,26 +53,25 @@ export default function Home() {
     }
   }, [router]);
 
-  const handleLogout = () => {
-  localStorage.removeItem("isAuthenticated");
+ const handleLogout = () => {
+  localStorage.removeItem("token");
   localStorage.removeItem("currentUser");
   router.push("/login");
 };
-
   // Gọi REST API Service khi load trang
   useEffect(() => {
-    async function loadData() {
-      try {
-        const houseData = await houseApi.getHouses();
-        setHouses(houseData);
-      } catch (error) {
-        console.error("Lỗi:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
+  const token = localStorage.getItem("token");
+  if (!token) {
+    router.push("/login");
+    return;
+  }
+  const userStr = localStorage.getItem("currentUser");
+  if (userStr) {
+    const user = JSON.parse(userStr);
+    if (user.fullName) setUserName(user.fullName);
+  }
+}, [router]);
+
   
 // Thêm state quản lý tầng được chọn
   const [selectedHouseIndex, setSelectedHouseIndex] = useState(0);
