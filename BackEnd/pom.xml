@@ -87,6 +87,7 @@
             <scope>test</scope>
         </dependency>
 
+
         <!-- 11. Thư viện WebSocket STOMP Server cho Spring Boot -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -129,6 +130,14 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+
+        <!-- 11. H2 in-memory cho test tích hợp (mục 13)
+             Cho phép chạy `mvn test` mà không cần bật Docker/PostgreSQL. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
 
     </dependencies>
 

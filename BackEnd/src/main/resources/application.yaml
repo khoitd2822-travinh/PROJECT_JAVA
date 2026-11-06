@@ -27,13 +27,19 @@ spring:
       host: localhost
       port: 6379
 
-# 4. Cấu hình MQTT EMQX Broker 
+
+# 4. Cấu hình MQTT EMQX Broker
+# BROKER + TENANT phải KHỚP với firmware/esp32-main/include/mqtt_config.h
+#   -> do doi MOT CHO: sua ca 2 ben cung luc
+
 mqtt:
   broker-url: tcp://localhost:1883
   client-id: swiftletcare_backend_consumer
+  tenant: thanhliem
   topic:
-    telemetry: swiftlet/telemetry/#
-    detection: swiftlet/detection/#
+    telemetry: swiftlet/thanhliem/+/+/+/telemetry
+    detection: swiftlet/thanhliem/+/+/+/detection
+    status: swiftlet/thanhliem/+/+/+/status
 
 # 5. Cấu hình S3 Storage (Zenko Cloudserver)
 s3:

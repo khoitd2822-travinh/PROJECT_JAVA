@@ -1,6 +1,9 @@
 # Environment & Secrets
 .env
 *.env.*
+# ...nhưng file mẫu (.env.example) PHẢI được commit — đó là tài liệu cấu hình
+# cho người mới setup. Nó chỉ chứa giá trị giả, không có bí mật thật.
+!.env.example
 
 # Java / Spring Boot / Maven / Gradle
 target/
@@ -46,7 +49,22 @@ ai/models/*
 # Firmware
 .pio/
 
+# Cau hinh local cua may (IP broker, SSID, mat khau) - KHONG commit
+firmware/*/include/*.local.h
+
+# Next.js / TypeScript
+*.tsbuildinfo
+.next/
+
 # System & Media
 .DS_Store
 Thumbs.db
 *.mp4
+
+# File tam sinh khi lam viec - KHONG commit (muc 13: ra file tu sinh)
+# Cac file nay van con tren dia, chi khong duoc push len git.
+extracted_plan.txt
+build_log.txt
+thu.txt
+plan_output.txt
+docs/testing/evidence/mock-broker.log
