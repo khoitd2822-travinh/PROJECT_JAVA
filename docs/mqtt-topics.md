@@ -185,3 +185,70 @@ LWT khi mất kết nối:
   "status": "OFFLINE"
 }
 ```
+
+## Bảng tổng hợp QoS và Retain
+
+| Topic | Chiều | QoS | Retain | Gửi bởi | Nhận bởi |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| `…/telemetry` | Board → hệ thống | 0 | false | ESP32 | Backend, Frontend |
+| `…/command` | Hệ thống → board | 1 | false | Backend | ESP32 |
+| `…/response` | Board → hệ thống | 1 | false | ESP32 | Backend |
+| `…/alert` | Board → hệ thống | 1 | false | ESP32 | Backend |
+| `…/status` | Board → hệ thống | 1 | **true** | ESP32 | Backend, Frontend |
+
+### Vì sao chọn QoS như vậy
+
+- **Telemetry dùng QoS 0**: dữ liệu cảm biến đến liên tục mỗi 2 giây. Nếu mất
+  một gói tin thì gói tin sau 2 giây sẽ bù lại ngay. Dùng QoS 1 sẽ tạo hàng đợi
+  retry khi mạng yếu, làm tăng độ trễ — không đáng.
+- **Command dùng QoS 1**: lệnh điều khiển relay **không được mất**. QoS 1 đảm bảo
+  broker nhận được lệnh và chuyển tới thiết bị.
+- **Response dùng QoS 1**: ACK là bằng chứng thiết bị đã thực hiện lệnh. Mất ACK
+  thì BE không phân biệt được "board treo" với "board không nhận lệnh".
+- **Status dùng retain = true**: broker giữ lại trạng thái cuối. Khi backend khởi
+  động lại hoặc có client mới subscribe, nó nhận được trạng thái ngay lập tức thay
+  vì chờ ESP32 gửi lần kế tiếp (2 giây sau).
+
+> **Lưu ý:** retain chỉ có ý nghĩa trên topic `status`. Không retain `telemetry`
+> vì sẽ tạo giá trị "mới nhất" bị đóng băng theo thời gian — backend có thể đọc
+> nhầm dữ liệu cũ là dữ liệu mới.
+
+### Khi nào cần nâng QoS cho telemetry
+
+Nếu yêu cầu "không được mất mẫu đo nào" (ví dụ dùng để chứng minh tuân thủ theo
+quy định), chuyển telemetry sang QoS 1. Khi đó cần:
+
+1. Buffer gói tin trên thiết bị khi mất mạng (firmware hiện chưa có).
+2. Thêm sequence/timestamp để BE phát hiện và loại bỏ gói tin trùng.
+3. Cơ chế chống gửi trùng ở tầng BE (dựa trên `commandId`/sequence).
+
+Đây là đánh đổi giữa độ trễ và độ tin cậy — cần team thống nhất.
+
+## Kiểm tra nhanh bằng MQTT giả lập
+
+```bash
+# Dựng broker ảo (không cần Docker, không cần board)
+python firmware/tests/mock/mock_mqtt_broker.py --standalone --port 1883
+
+# Xem topic đang dùng
+python firmware/tests/mock/mock_mqtt_broker.py --print-topics
+
+# Phát telemetry
+python firmware/tests/mock/mock_mqtt_broker.py --publish telemetry --count 5
+
+# Lắng nghe và in mọi gói tin
+python firmware/tests/mock/mock_mqtt_broker.py --listen --timeout 30
+```
+
+## Quy tắc bổ sung cho thiết bị mới
+
+1. **Mỗi thiết bị chỉ nghe topic của riêng mình.** Không dùng topic broadcast
+   (`swiftlet/command/all`) — nhiều board cùng subscribe sẽ kích hoạt tất cả.
+2. **Tenant bắt buộc.** Mọi topic phải có `swiftlet/{tenant}/...` để không đụng
+   với topic của nhánh khác trong repo.
+3. **`deviceId` trong payload phải khớp `deviceId` trong topic.** BE đối chiếu
+   hai giá trị này để tránh lưu nhầm dữ liệu vào khu vực sai.
+4. **Command phải có `commandId`.** Đây là khoá duy nhất để chống gửi trùng và
+   làm cơ sở cho timeout ở tầng BE.
+5. **Phân biệt `measuredAt` và `receivedAt`.** Payload telemetry nên có thời điểm
+   đo; BE bổ sung thời điểm nhận. Như vậy mới đo được độ trễ thật.

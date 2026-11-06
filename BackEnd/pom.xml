@@ -86,6 +86,14 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- 11. H2 in-memory cho test tích hợp (mục 13)
+             Cho phép chạy `mvn test` mà không cần bật Docker/PostgreSQL. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
