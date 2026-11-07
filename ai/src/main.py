@@ -4,6 +4,7 @@
 Lan dau chua co vach: tu mo giao dien ve vach (bam 2 diem len lo cua thu). Ve lai: them --draw-line
   python main.py --source video.mp4 --draw-line
 Cac lan sau tu doc lai vach da luu (config/line_<camera>.json):
+  python main.py                                          # hien MENU: 1 video | 2 camera | 3 webcam | 4 nhap URL
   python main.py --source video.mp4
   python main.py --source 0                               # webcam
   python main.py --source http://192.168.1.50:81/stream   # ESP32-CAM
@@ -16,6 +17,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -39,13 +41,16 @@ PROJECT = Path(os.environ.get("SWIFTLET_HOME", HERE.parent))
 DEFAULT_MODEL = next((p for p in (PROJECT / "models" / "best.pt", HERE / "best.pt") if p.exists()),
                      PROJECT / "models" / "best.pt")
 PREDATORS = {"owl", "rat", "snake"}
+# ESP32-CAM (CameraWebServer): trang web o cong 80, LUONG VIDEO o cong 81. Thu lan luot cac duong dan hay gap.
+CAMERA_IP = os.environ.get("CAMERA_IP", "192.168.103.50")
+CAMERA_URLS = [f"http://{CAMERA_IP}:81/stream", f"http://{CAMERA_IP}/stream", f"http://{CAMERA_IP}/mjpeg/1"]
 COLORS = {"swiftlet": (0, 220, 0), "owl": (0, 0, 255), "rat": (0, 0, 255), "snake": (0, 0, 255)}
 
 
 # --------------------------------------------------------------------------- tham so
 def parse_args():
     p = argparse.ArgumentParser(description="SwiftletCare edge counter")
-    p.add_argument("--source", help="file video | so webcam | URL http/rtsp. De trong = chon file")
+    p.add_argument("--source", help="file video | so webcam | URL http/rtsp. De trong = hien MENU chon nguon")
     p.add_argument("--model", default=str(DEFAULT_MODEL))
     p.add_argument("--tracker", default=str(PROJECT / "config" / "bytetrack_bird.yaml"))
     p.add_argument("--conf", type=float, default=None, help="(cu) tuong duong --conf-swiftlet")
@@ -85,21 +90,71 @@ def parse_args():
     return p.parse_args()
 
 
+def probe_stream(urls):
+    """Thu mo tung URL, tra ve URL dau tien doc duoc khung hinh (hoac None)."""
+    for u in urls:
+        print(f"  Thu ket noi: {u}")
+        cap = cv2.VideoCapture(u)
+        ok = cap.isOpened() and cap.read()[0]
+        cap.release()
+        if ok:
+            print(f"  -> Ket noi duoc: {u}")
+            return u
+    return None
+
+
+def pick_video_file():
+    from tkinter import Tk, filedialog
+    root = Tk(); root.withdraw(); root.attributes("-topmost", True)
+    path = filedialog.askopenfilename(
+        parent=root, title="Chon video de dem chim",
+        filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv"), ("Tat ca", "*.*")])
+    root.destroy()
+    return path
+
+
 def pick_source(arg):
-    """Tra ve (source, is_stream)."""
-    if arg is None:
-        from tkinter import Tk, filedialog
-        root = Tk(); root.withdraw(); root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(
-            parent=root, title="Chon video de dem chim",
-            filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv"), ("Tat ca", "*.*")])
-        root.destroy()
-        if not path:
-            raise SystemExit("Chua chon video. Dung --source 0 de dung webcam.")
-        return path, False
-    if arg.isdigit():
-        return int(arg), True
-    return arg, arg.lower().startswith(("rtsp://", "http://", "https://"))
+    """Tra ve (source, is_stream). Co --source thi dung luon, khong thi hien MENU."""
+    if arg is not None:
+        if arg.isdigit():
+            return int(arg), True
+        return arg, arg.lower().startswith(("rtsp://", "http://", "https://"))
+
+    if not sys.stdin.isatty():                          # Docker/service: khong co ban phim -> noi camera
+        return probe_stream(CAMERA_URLS) or CAMERA_URLS[0], True
+
+    while True:
+        print("\n=== CHON NGUON VIDEO ===")
+        print("  1. Video trong may (chon file)")
+        print(f"  2. Camera ESP32-CAM qua WiFi ({CAMERA_IP})")
+        print("  3. Webcam may tinh")
+        print("  4. Nhap URL / IP camera khac")
+        print("  0. Thoat")
+        choice = input("Chon (0-4): ").strip()
+        if choice == "1":
+            path = pick_video_file()
+            if path:
+                return path, False
+            print("Chua chon video.")
+        elif choice == "2":
+            print("Dang tim luong camera...")
+            url = probe_stream(CAMERA_URLS)
+            if url:
+                return url, True
+            print("Khong ket noi duoc camera. Kiem tra: cung WiFi, da dong tab web camera "
+                  "(ESP32 chi cho 1 may xem luong), hoac chon 4 de nhap URL.")
+        elif choice == "3":
+            return 0, True
+        elif choice == "4":
+            u = input("Nhap URL hoac IP (vd 192.168.103.50): ").strip()
+            if u:
+                if not u.lower().startswith(("http://", "https://", "rtsp://")):
+                    u = f"http://{u}:81/stream"
+                return u, not u.isdigit()
+        elif choice == "0":
+            raise SystemExit("Da thoat.")
+        else:
+            print("Lua chon khong hop le.")
 
 
 # --------------------------------------------------------------------------- doc camera
