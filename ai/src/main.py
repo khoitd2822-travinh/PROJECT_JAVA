@@ -4,6 +4,7 @@
 Lan dau chua co vach: tu mo giao dien ve vach (bam 2 diem len lo cua thu). Ve lai: them --draw-line
   python main.py --source video.mp4 --draw-line
 Cac lan sau tu doc lai vach da luu (config/line_<camera>.json):
+  python main.py                                          # hien MENU: 1 video | 2 camera | 3 webcam | 4 nhap URL
   python main.py --source video.mp4
   python main.py --source 0                               # webcam
   python main.py --source http://192.168.1.50:81/stream   # ESP32-CAM
@@ -16,6 +17,7 @@ import argparse
 import csv
 import json
 import os
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -27,8 +29,10 @@ import numpy as np
 from ultralytics import YOLO
 
 from counter import VirtualLineCounter
+from alerts import PredatorFilter, parse_conf_map
 from line_ui import ActionBar, edit_line, fit_scale
 from mqtt_publisher import build_publisher
+from perf import ResourceMonitor, format_summary
 from state import read_state, resolve, write_state
 
 HERE = Path(__file__).resolve().parent
@@ -37,16 +41,34 @@ PROJECT = Path(os.environ.get("SWIFTLET_HOME", HERE.parent))
 DEFAULT_MODEL = next((p for p in (PROJECT / "models" / "best.pt", HERE / "best.pt") if p.exists()),
                      PROJECT / "models" / "best.pt")
 PREDATORS = {"owl", "rat", "snake"}
+# ESP32-CAM (CameraWebServer): trang web o cong 80, LUONG VIDEO o cong 81. Thu lan luot cac duong dan hay gap.
+CAMERA_IP = os.environ.get("CAMERA_IP", "192.168.103.50")
+CAMERA_URLS = [f"http://{CAMERA_IP}:81/stream", f"http://{CAMERA_IP}/stream", f"http://{CAMERA_IP}/mjpeg/1"]
 COLORS = {"swiftlet": (0, 220, 0), "owl": (0, 0, 255), "rat": (0, 0, 255), "snake": (0, 0, 255)}
 
 
 # --------------------------------------------------------------------------- tham so
 def parse_args():
     p = argparse.ArgumentParser(description="SwiftletCare edge counter")
-    p.add_argument("--source", help="file video | so webcam | URL http/rtsp. De trong = chon file")
+    p.add_argument("--source", help="file video | so webcam | URL http/rtsp. De trong = hien MENU chon nguon")
     p.add_argument("--model", default=str(DEFAULT_MODEL))
     p.add_argument("--tracker", default=str(PROJECT / "config" / "bytetrack_bird.yaml"))
-    p.add_argument("--conf", type=float, default=0.25)
+    p.add_argument("--conf", type=float, default=None, help="(cu) tuong duong --conf-swiftlet")
+    p.add_argument("--conf-swiftlet", type=float, default=0.25,
+                   help="Nguong tin cay khi DEM CHIM (thap de it bo sot, tranh dut ID)")
+    p.add_argument("--conf-predator", type=float, default=0.5,
+                   help="Nguong tin cay mac dinh cho canh bao thu san moi (cao de it bao dong gia)")
+    p.add_argument("--predator-conf", default="",
+                   help="Nguong rieng tung loai, vd: owl=0.6,rat=0.5,snake=0.55")
+    p.add_argument("--min-predator-area", type=float, default=0.0003,
+                   help="Hop bao thu san moi phai chiem it nhat ti le nay cua khung (loc nhieu nho)")
+    p.add_argument("--predator-frames", type=int, default=3, help="So khung LIEN TIEP phai thay moi bao")
+    p.add_argument("--alert-cooldown", type=float, default=30.0, help="Giay toi thieu giua 2 canh bao cung loai")
+    p.add_argument("--det-log", default=str(PROJECT / "data" / "detections_last.csv"),
+                   help="File ghi moi lan model thay thu san moi (de cho calibrate_threshold.py can nguong)")
+    p.add_argument("--device", default=None, help="cpu | 0 | cuda:0 ... Bo trong = tu chon")
+    p.add_argument("--half", action="store_true", help="Suy luan FP16 (chi co tac dung tren GPU NVIDIA)")
+    p.add_argument("--no-monitor", action="store_true", help="Khong do CPU/GPU/RAM")
     p.add_argument("--imgsz", type=int, default=640)
     p.add_argument("--draw-line", action="store_true",
                    help="Bam 2 diem de ve vach ao tai lo cua thu (se duoc luu lai)")
@@ -68,21 +90,71 @@ def parse_args():
     return p.parse_args()
 
 
+def probe_stream(urls):
+    """Thu mo tung URL, tra ve URL dau tien doc duoc khung hinh (hoac None)."""
+    for u in urls:
+        print(f"  Thu ket noi: {u}")
+        cap = cv2.VideoCapture(u)
+        ok = cap.isOpened() and cap.read()[0]
+        cap.release()
+        if ok:
+            print(f"  -> Ket noi duoc: {u}")
+            return u
+    return None
+
+
+def pick_video_file():
+    from tkinter import Tk, filedialog
+    root = Tk(); root.withdraw(); root.attributes("-topmost", True)
+    path = filedialog.askopenfilename(
+        parent=root, title="Chon video de dem chim",
+        filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv"), ("Tat ca", "*.*")])
+    root.destroy()
+    return path
+
+
 def pick_source(arg):
-    """Tra ve (source, is_stream)."""
-    if arg is None:
-        from tkinter import Tk, filedialog
-        root = Tk(); root.withdraw(); root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(
-            parent=root, title="Chon video de dem chim",
-            filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv"), ("Tat ca", "*.*")])
-        root.destroy()
-        if not path:
-            raise SystemExit("Chua chon video. Dung --source 0 de dung webcam.")
-        return path, False
-    if arg.isdigit():
-        return int(arg), True
-    return arg, arg.lower().startswith(("rtsp://", "http://", "https://"))
+    """Tra ve (source, is_stream). Co --source thi dung luon, khong thi hien MENU."""
+    if arg is not None:
+        if arg.isdigit():
+            return int(arg), True
+        return arg, arg.lower().startswith(("rtsp://", "http://", "https://"))
+
+    if not sys.stdin.isatty():                          # Docker/service: khong co ban phim -> noi camera
+        return probe_stream(CAMERA_URLS) or CAMERA_URLS[0], True
+
+    while True:
+        print("\n=== CHON NGUON VIDEO ===")
+        print("  1. Video trong may (chon file)")
+        print(f"  2. Camera ESP32-CAM qua WiFi ({CAMERA_IP})")
+        print("  3. Webcam may tinh")
+        print("  4. Nhap URL / IP camera khac")
+        print("  0. Thoat")
+        choice = input("Chon (0-4): ").strip()
+        if choice == "1":
+            path = pick_video_file()
+            if path:
+                return path, False
+            print("Chua chon video.")
+        elif choice == "2":
+            print("Dang tim luong camera...")
+            url = probe_stream(CAMERA_URLS)
+            if url:
+                return url, True
+            print("Khong ket noi duoc camera. Kiem tra: cung WiFi, da dong tab web camera "
+                  "(ESP32 chi cho 1 may xem luong), hoac chon 4 de nhap URL.")
+        elif choice == "3":
+            return 0, True
+        elif choice == "4":
+            u = input("Nhap URL hoac IP (vd 192.168.103.50): ").strip()
+            if u:
+                if not u.lower().startswith(("http://", "https://", "rtsp://")):
+                    u = f"http://{u}:81/stream"
+                return u, not u.isdigit()
+        elif choice == "0":
+            raise SystemExit("Da thoat.")
+        else:
+            print("Lua chon khong hop le.")
 
 
 # --------------------------------------------------------------------------- doc camera
@@ -187,6 +259,25 @@ def resolve_line(args, reader, cap):
     return saved
 
 
+def describe_device(device_arg, half):
+    """In thiet bi dang dung. Tra ve (dung FP16 hay khong, nhan thiet bi)."""
+    try:
+        import torch
+        cuda = torch.cuda.is_available()
+        gpu_name = torch.cuda.get_device_name(0) if cuda else None
+    except Exception:
+        cuda, gpu_name = False, None
+    forced_cpu = bool(device_arg) and str(device_arg).lower().startswith("cpu")
+    on_gpu = cuda and not forced_cpu
+    label = f"GPU ({gpu_name})" if on_gpu else "CPU"
+    if not cuda and not forced_cpu:
+        label += " - khong thay GPU CUDA (torch ban CPU hoac may khong co card NVIDIA)"
+    print(f"Thiet bi suy luan: {label}")
+    if half and not on_gpu:
+        print("Luu y: --half chi dung duoc tren GPU NVIDIA -> bo qua.")
+    return bool(half and on_gpu), label
+
+
 # --------------------------------------------------------------------------- main
 WIN = "SwiftletCare - Dem chim"
 
@@ -196,13 +287,28 @@ def main():
     source, is_stream = pick_source(args.source)
 
     print("Dang nap model...")
-    model = YOLO(args.model)
+    model = YOLO(args.model, task="detect")
     names = {int(k): v for k, v in model.names.items()}
     swiftlet_ids = {k for k, v in names.items() if v.lower() == "swiftlet"}
     if not swiftlet_ids:
         raise SystemExit(f"Model khong co class 'Swiftlet'. Cac class hien co: {names}")
     print("Da nap model:", names)
     tracker = args.tracker if Path(args.tracker).exists() else "bytetrack.yaml"
+    orig_name = {v.lower(): v for v in names.values()}
+    use_half, device_label = describe_device(args.device, args.half)
+    conf_swiftlet = args.conf if args.conf is not None else args.conf_swiftlet
+    pflt = PredatorFilter(parse_conf_map(args.predator_conf), default_conf=args.conf_predator,
+                          min_area_ratio=args.min_predator_area, streak_needed=args.predator_frames,
+                          cooldown_s=args.alert_cooldown)
+    model_conf = max(0.01, min(conf_swiftlet, pflt.min_threshold()))   # san cua model, loc tiep theo tung loai
+    track_kw = dict(persist=True, tracker=tracker, conf=model_conf, imgsz=args.imgsz, verbose=False)
+    if args.device:
+        track_kw["device"] = args.device
+    if use_half:
+        track_kw["half"] = True
+    print(f"Nguong: chim >= {conf_swiftlet} | thu san moi >= {pflt.default_conf}"
+          f"{' (rieng: ' + args.predator_conf + ')' if args.predator_conf else ''}"
+          f" | hop bao >= {args.min_predator_area:.2%} khung | {args.predator_frames} khung lien tiep")
 
     reader = LatestFrameReader(source) if is_stream else None
     cap = None if is_stream else cv2.VideoCapture(source)
@@ -220,6 +326,12 @@ def main():
     ev_file = open(PROJECT / "data" / "events_last.csv", "w", newline="", encoding="utf-8")
     ev_csv = csv.writer(ev_file)
     ev_csv.writerow(["frame", "video_time_s", "event", "track_id", "in", "out", "current"])
+    Path(args.det_log).parent.mkdir(parents=True, exist_ok=True)
+    det_file = open(args.det_log, "w", newline="", encoding="utf-8")
+    det_csv = csv.writer(det_file)
+    det_csv.writerow(["t", "idx", "class", "conf", "area_ratio", "track_id"])
+    acc = defaultdict(float)                      # cong don thoi gian tung buoc (ms)
+    mon = None if args.no_monitor else ResourceMonitor().start()
 
     counter = None
     frame_no, last_seq, n_proc, shown = 0, -1, 0, 0
@@ -277,10 +389,14 @@ def main():
                 counter.set_line(p1, p2)
             frame_size = (w, h)
 
-            res = model.track(raw, persist=True, tracker=tracker, conf=args.conf,
-                              imgsz=args.imgsz, verbose=False)[0]
+            t_loop0 = time.perf_counter()
+            res = model.track(raw, **track_kw)[0]
+            acc["track_ms"] += (time.perf_counter() - t_loop0) * 1000
+            for key in ("preprocess", "inference", "postprocess"):
+                acc[key] += res.speed.get(key, 0.0)
             k = max(1.0, h / 720)             # chu/net ve to len theo do phan giai
-            seen_predators, birds_now = {}, 0
+            tnow = (frame_no / src_fps) if src_fps else time.time()   # giay: theo video hoac dong ho
+            pred_dets, birds_now = [], 0
             b = res.boxes
             if b is not None and len(b):
                 xyxy = b.xyxy.cpu().numpy()
@@ -290,12 +406,20 @@ def main():
                 for box, c, cf, tid in zip(xyxy, cls, conf, ids):
                     name = names[c]
                     x1, y1, x2, y2 = box
+                    if name.lower() in PREDATORS:
+                        area = max(0.0, x2 - x1) * max(0.0, y2 - y1) / (w * h)
+                        det_csv.writerow([round(tnow, 3), n_proc, name, round(float(cf), 3),
+                                          round(float(area), 5), tid if tid is not None else ""])
+                        det_file.flush()
+                        pred_dets.append((name, float(cf), float(area)))
+                        if not pflt.accepts(name, float(cf), float(area)):
+                            continue                  # duoi nguong / qua nho: khong ve, khong tinh
+                    elif cf < conf_swiftlet:
+                        continue                      # chim duoi nguong dem chim
                     color = COLORS.get(name.lower(), (255, 160, 0))
                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, max(2, int(2 * k)))
                     cv2.putText(frame, f"{name} {tid if tid is not None else ''} {cf:.0%}",
                                 (int(x1), max(15, int(y1) - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.5 * k, color, 1)
-                    if name.lower() in PREDATORS:
-                        seen_predators[name] = max(float(cf), seen_predators.get(name, 0.0))
                     if c in swiftlet_ids:
                         birds_now += 1
                         n_det += 1
@@ -319,19 +443,16 @@ def main():
             frames_with_bird += 1 if birds_now else 0
             counter.prune(frame_no)
 
-            # ---- canh bao thu san moi (>=3 khung lien tiep, cooldown 30s)
+            # ---- canh bao thu san moi (nguong tung loai, loc hop bao nho, can khung lien tiep, cooldown)
             now = time.time()
-            for name in PREDATORS:
-                real = next((n for n in seen_predators if n.lower() == name), None)
-                streak[name] = streak[name] + 1 if real else 0
-                if real and streak[name] >= 3 and now - last_alert.get(name, 0) > 30:
-                    last_alert[name] = now
-                    snap = Path(args.snapshot_dir) / f"{name}_{datetime.now():%Y%m%d_%H%M%S}.jpg"
-                    cv2.imwrite(str(snap), frame)
-                    print(f"[CANH BAO] Phat hien {real} ({seen_predators[real]:.0%}) -> {snap.name}")
-                    pub.publish("alert", {
-                        "type": "predator", "class": real, "confidence": round(seen_predators[real], 3),
-                        "snapshot": str(snap), "ts": datetime.now().astimezone().isoformat()})
+            for al in pflt.update(pred_dets, tnow):
+                real = orig_name.get(al["class"], al["class"])
+                snap = Path(args.snapshot_dir) / f"{al['class']}_{datetime.now():%Y%m%d_%H%M%S}.jpg"
+                cv2.imwrite(str(snap), frame)
+                print(f"[CANH BAO] Phat hien {real} ({al['confidence']:.0%}) -> {snap.name}")
+                pub.publish("alert", {
+                    "type": "predator", "class": real, "confidence": round(al["confidence"], 3),
+                    "snapshot": str(snap), "ts": datetime.now().astimezone().isoformat()})
 
             # ---- ve vach + HUD
             ip1 = (int(counter.p1[0]), int(counter.p1[1]))
@@ -411,29 +532,43 @@ def main():
                         counter.tracks.clear()                    # tranh dem nham do doi vach
                         print("Da cap nhat vach ao.")
                     t_prev = time.time()
+            acc["loop_ms"] += (time.perf_counter() - t_loop0) * 1000
     except KeyboardInterrupt:
         pass
     finally:
         elapsed = max(time.time() - t_start, 1e-6)
+        resources = mon.stop() if mon else {}
         if reader:
             reader.stop()
         if cap:
             cap.release()
         ev_file.close()
+        det_file.close()
         if counter:
             if use_state:
                 write_state(st_path, counter)
+            n = max(n_proc, 1)
+            perf = {"ms_preprocess": round(acc["preprocess"] / n, 2),
+                    "ms_inference": round(acc["inference"] / n, 2),
+                    "ms_postprocess": round(acc["postprocess"] / n, 2),
+                    "ms_track_total": round(acc["track_ms"] / n, 2),   # gom ca ByteTrack
+                    "ms_loop": round(acc["loop_ms"] / n, 2)}           # ca ve + hien thi
             (PROJECT / "data" / "last_run.json").write_text(json.dumps({
                 "in": counter.in_count, "out": counter.out_count, "current": counter.current,
                 "frames_read": frame_no, "frames_processed": n_proc,
                 "avg_fps": round(n_proc / elapsed, 2), "source": str(source),
                 "swiftlet_detections": n_det, "frames_with_swiftlet": frames_with_bird,
-                "unique_track_ids": len(track_ids)}))
-            print(f"\nKET QUA: IN={counter.in_count}  OUT={counter.out_count}  CON LAI={counter.current}"
-                  f"  | FPS trung binh={n_proc / elapsed:.1f}")
+                "unique_track_ids": len(track_ids), "device": device_label, "half": use_half,
+                "imgsz": args.imgsz, "perf": perf, "resources": resources}))
+            print(f"\nKET QUA: IN={counter.in_count}  OUT={counter.out_count}  CON LAI={counter.current}")
+            print(f"Hieu nang: FPS trung binh={n_proc / elapsed:.1f} tren {device_label} | moi khung: "
+                  f"tien xu ly {perf['ms_preprocess']}ms + suy luan {perf['ms_inference']}ms + "
+                  f"hau xu ly {perf['ms_postprocess']}ms (track gom ByteTrack: {perf['ms_track_total']}ms, "
+                  f"ca vong lap: {perf['ms_loop']}ms)")
+            print("Tai nguyen:", format_summary(resources))
             print(f"Chan doan: thay chim o {frames_with_bird}/{n_proc} khung, {len(track_ids)} ID.")
             if n_det == 0:
-                print("-> Model KHONG thay chim nao: kiem tra --conf, model, chat luong/goc video.")
+                print("-> Model KHONG thay chim nao: kiem tra --conf-swiftlet, model, chat luong/goc video.")
             elif counter.in_count + counter.out_count == 0:
                 print("-> Co thay chim nhung khong con nao cat vach: kiem tra vach co nam tren duong bay khong"
                       " (bam VE LAI VACH).")
