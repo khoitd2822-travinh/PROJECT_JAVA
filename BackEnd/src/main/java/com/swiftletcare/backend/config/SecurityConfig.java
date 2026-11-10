@@ -2,6 +2,7 @@ package com.swiftletcare.backend.config;
 
 import com.swiftletcare.backend.modules.auth.security.AuthTokenFilter;
 import com.swiftletcare.backend.modules.auth.security.UserDetailsServiceImpl;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -55,11 +56,12 @@ public class SecurityConfig {
             return config;
         })).csrf(csrf -> csrf.disable())
           .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-          .authorizeHttpRequests(auth -> 
-              auth.requestMatchers("/api/v1/auth/**").permitAll()
-.requestMatchers("/ws-swiftlet/**").permitAll()
-                  .anyRequest().authenticated()
-          );
+                .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/ws-swiftlet/**").permitAll()
+                        .anyRequest().authenticated()
+                );
         
         http.authenticationProvider(authenticationProvider());
         http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
