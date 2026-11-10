@@ -1,38 +1,36 @@
 package com.swiftletcare.backend.modules.actuation.controller;
 
-import com.swiftletcare.backend.modules.actuation.dto.OverrideRequestDTO;
-import com.swiftletcare.backend.modules.actuation.service.ActuationService;
+import com.swiftletcare.backend.modules.actuation.dto.CommandResponse;
+import com.swiftletcare.backend.modules.actuation.service.CommandService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/actuation")
 @CrossOrigin(origins = "*")
 public class ActuationController {
-    private final ActuationService actuationService;
-    public ActuationController(ActuationService actuationService){
-        this.actuationService = actuationService;
-    }
-    // dieu khien ngat relay thu cong
-    // http://localhost:8080/api/v1/actuation/override
-    @PostMapping("/override")
-    public ResponseEntity<Map<String,Object>> overrideActuator(@RequestBody OverrideRequestDTO request){
-        boolean success = actuationService.sendOverrideCommand(request);
-        Map<String,Object> response = new HashMap<>();
-        if (success){
-            response.put("status", 200);
-            response.put("message","da gui lenh dieu khien thiet bi thanh cong");
-            return ResponseEntity.ok(response);
-        }else {
-            response.put("status",500);
-            response.put("message", "gui lenh dieu khien that bai");
-            return ResponseEntity.status(500).body(response);
+    private final CommandService commandService;
 
-        }
+    public ActuationController(CommandService commandService) {
+        this.commandService = commandService;
+    }
+
+    @GetMapping("/commands/{commandId}")
+    public ResponseEntity<Map<String, Object>> getCommand(@PathVariable UUID commandId) {
+        CommandResponse command = commandService.get(commandId);
+        return ResponseEntity.ok(Map.of(
+                "status", 200,
+                "message", "Lấy kết quả lệnh thành công",
+                "data", command));
+    }
+
+    @PostMapping("/override")
+    public void oldOverride() {
+        throw new ResponseStatusException(HttpStatus.GONE, "Dùng POST /api/v1/farm/devices/control");
     }
 }
