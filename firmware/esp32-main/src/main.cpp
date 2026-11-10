@@ -8,6 +8,8 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 
+
+
 #define FAN_RELAY_PIN 26
 #define FAN_SMOKE_RELAY_PIN 14
 #define MIST_RELAY_PIN 27
@@ -35,7 +37,7 @@ int gasValue = 0;
 // Wi-Fi router dùng chung với máy chạy Docker.
 // Tự điền tại máy, không cần gửi mật khẩu lên chat.
 const char *WIFI_SSID = "Haibon7979 T3";
-const char *WIFI_PASSWORD = "";
+const char *WIFI_PASSWORD = "79797979";
 
 // IP LAN của máy chạy Docker, KHÔNG dùng localhost.
 const char *MQTT_HOST = "192.168.103.51";
@@ -43,6 +45,8 @@ const uint16_t MQTT_PORT = 1883;
 
 const char *TELEMETRY_TOPIC = "swiftlet/telemetry/1/1";
 const char *COMMAND_TOPIC = "swiftlet/command/1/1";
+const char *BOARD_ID = "ESP32_ZONE_1";
+const char *ACK_TOPIC = "swiftlet/ack/1/1";
 
 WiFiClient networkClient;
 PubSubClient mqttClient(networkClient);
@@ -55,6 +59,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   if (strcmp(topic, COMMAND_TOPIC) != 0) return;
 
   StaticJsonDocument<256> command;
+
   if (deserializeJson(command, payload, length)) {
     Serial.println("[MQTT] Lenh JSON khong hop le");
     return;
@@ -67,6 +72,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   if (!command["state"].is<int>()) return;
 
   int state = command["state"].as<int>();
+
   if (state != 0 && state != 1) return;
 
   int pin = -1;
@@ -89,11 +95,14 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     return;
   }
 
-  // Lệnh thủ công vô hiệu auto của đúng thiết bị đó.
   *autoFlag = false;
   digitalWrite(pin, state == 1 ? HIGH : LOW);
 
-  Serial.printf("[MQTT] Da dieu khien %s = %d\n", target, state);
+  Serial.printf(
+      "[MQTT] Da dieu khien %s = %d\n",
+      target,
+      state
+  );
 }
 
 void maintainMqtt() {
@@ -110,6 +119,7 @@ void maintainMqtt() {
       lastWifiAttempt = now;
       WiFi.reconnect();
     }
+
     return;
   }
 
@@ -121,6 +131,7 @@ void maintainMqtt() {
 
   if (!mqttClient.connected()) {
     if (now - lastMqttAttempt < 5000) return;
+
     lastMqttAttempt = now;
 
     String clientId = "swiftlet-";
@@ -128,12 +139,18 @@ void maintainMqtt() {
 
     if (mqttClient.connect(clientId.c_str())) {
       bool subscribed = mqttClient.subscribe(COMMAND_TOPIC, 1);
-      Serial.printf("[MQTT] Connected; subscribe = %s\n",
-                    subscribed ? "OK" : "FAILED");
+
+      Serial.printf(
+          "[MQTT] Connected; subscribe = %s\n",
+          subscribed ? "OK" : "FAILED"
+      );
     } else {
-      Serial.printf("[MQTT] Ket noi loi, state = %d\n",
-                    mqttClient.state());
+      Serial.printf(
+          "[MQTT] Ket noi loi, state = %d\n",
+          mqttClient.state()
+      );
     }
+
     return;
   }
 
@@ -339,6 +356,7 @@ void setup() {
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(512);
+ 
   mqttClient.setSocketTimeout(1);
 
   Serial.println("[WiFi] Dang ket noi router...");

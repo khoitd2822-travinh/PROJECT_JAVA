@@ -16,7 +16,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -51,3 +51,6 @@ zalo:
   oa:
     access-token: ""
     user-id: ""
+
+actuation:
+  ack-timeout-seconds: 180

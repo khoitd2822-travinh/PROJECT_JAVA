@@ -25,6 +25,9 @@ public class Device {
     @Column(nullable = false)
     private String status; // ON, OFF
 
+    @Column(name = "control_mode", length = 16)
+    private String controlMode;
+
     private Long zoneId; 
     private Long farmId; 
 
