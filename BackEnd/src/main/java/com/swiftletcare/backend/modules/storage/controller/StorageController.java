@@ -20,12 +20,15 @@ public class StorageController {
     // vd:  http://localhost:8080/api/v1/storage/ abc.jpg
     @GetMapping("/url")
     public ResponseEntity<Map<String,Object>> getUrl(@RequestParam String fileName){
+        if (fileName == null || !fileName.startsWith("alerts/") || fileName.contains("..") || fileName.contains("\\")) {
+            return ResponseEntity.badRequest().body(Map.of("status", 400, "message", "Invalid snapshot key"));
+        }
         String url = minioStorageService.getPresignedImageUrl(fileName);
         Map<String,Object> response = new HashMap<>();
         if (url != null){
             response.put("status",200);
             response.put("message","Tao URL thanh cong");
-            response.put("url:",url);
+            response.put("url",url);
             return ResponseEntity.ok(response);
         }else {
             response.put("status",500);

@@ -34,6 +34,7 @@ mqtt:
   topic:
     telemetry: swiftlet/telemetry/#
     detection: swiftlet/detection/#
+    bird-tracking: swiftletcare/+/+/#
 
 # 5. Cấu hình S3 Storage (Zenko Cloudserver)
 s3:
@@ -49,5 +50,5 @@ jwt:
 # 7. Zalo OA — để trống vẫn chạy được; chỉ lỗi khi bấm gửi cảnh báo
 zalo:
   oa:
-    access-token: ""
-    user-id: ""
+    access-token: ${ZALO_OA_ACCESS_TOKEN:}
+    user-id: ${ZALO_OA_USER_ID:}

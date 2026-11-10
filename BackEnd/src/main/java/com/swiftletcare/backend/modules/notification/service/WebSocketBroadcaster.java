@@ -26,4 +26,10 @@ public class WebSocketBroadcaster {
         messagingTemplate.convertAndSend("/topic/alerts", alertData);
         log.info("🚨 [WebSocket Realtime] Đã phát cảnh báo tới topic: /topic/alerts");
     }
+
+    public void broadcastBirdTracking(String houseId, String cameraId, Object data) {
+        String destination = String.format("/topic/bird-tracking/%s/%s", houseId, cameraId);
+        messagingTemplate.convertAndSend(destination, data);
+        log.info("Bird tracking event sent to {}", destination);
+    }
 }

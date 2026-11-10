@@ -10,6 +10,16 @@ public class BirdTrackingDTO {
     private Long id;
     private Long farmId;
     private Long zoneId;
+    private String eventId;
+    private String cameraId;
+    private Long trackId;
+    private Integer inCount;
+    private Integer outCount;
+    private Integer currentCount;
+    private String snapshotKey;
+    private boolean zaloNotified;
+    private int zaloAttempts;
+    private String zaloLastResult;
     private int birdCount;
     private String eventType;
     private String description;
