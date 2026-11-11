@@ -60,6 +60,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/ws-swiftlet/**").permitAll()
+                        .requestMatchers("/api/v1/farm/**").permitAll() // Thêm dòng này để cho phép gọi API Farm mà không cần token khi test
                         .anyRequest().authenticated()
                 );
         

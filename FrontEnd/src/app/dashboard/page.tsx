@@ -2,74 +2,64 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import mqtt, { MqttClient } from 'mqtt';
 
 interface SwiftletHouse {
   id: string;
   name: string;
   location: string;
   status: 'online' | 'warning' | 'offline';
-  temperature: number;
-  humidity: number;
-  co2: number;
+  temperature: number | string;
+  humidity: number | string;
+  co2: number | string;
+  sound?: number | string;
+  light?: number | string;
   birdsInToday: number;
   birdsOutToday: number;
   mistingActive: boolean;
 }
 
 export default function DashboardOverviewPage() {
+  // Quản lý nhà yến bằng mảng houses
   const [houses, setHouses] = useState<SwiftletHouse[]>([
     {
       id: 'house-01',
-      name: 'Nhà yến Lâm Sơn - Tầng 1',
+      name: 'Nhà yến Lâm Sơn',
       location: 'Lâm Sơn, Ninh Thuận',
       status: 'online',
-      temperature: 28.4,
-      humidity: 82.5,
-      co2: 650,
-      birdsInToday: 1240,
-      birdsOutToday: 1190,
-      mistingActive: true,
-    },
-    {
-      id: 'house-02',
-      name: 'Nhà yến Lâm Sơn - Tầng 2',
-      location: 'Lâm Sơn, Ninh Thuận',
-      status: 'warning',
-      temperature: 31.8,
-      humidity: 71.0,
-      co2: 820,
-      birdsInToday: 850,
-      birdsOutToday: 880,
+      temperature: '--',
+      humidity: '--',
+      co2: '--',
+      sound: '--',
+      light: '--',
+      birdsInToday: 0,
+      birdsOutToday: 0,
       mistingActive: false,
     },
   ]);
 
-  const [isConnected, setIsConnected] = useState(false);
-  const [mqttClient, setMqttClient] = useState<MqttClient | null>(null);
+  // Trạng thái kết nối API thực tế để hiển thị thông báo lỗi/thiếu dữ liệu
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'loading'>('loading');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Lưu video được chọn từ máy tính
-  const [videoUrl, setVideoUrl] = useState("");
-  const [videoName, setVideoName] = useState("");
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoName, setVideoName] = useState('');
 
-  // Khởi tạo kết nối MQTT trực tiếp trong trang
+  // Lấy số đo thật trực tiếp từ Backend (Spring Boot) qua REST API
   useEffect(() => {
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
-      clientId: `swiftlet_web_${Math.random().toString(16).substring(2, 8)}`,
-      clean: true,
-      connectTimeout: 4000,
-    });
+    const fetchRealtimeData = async () => {
+      try {
+        const response = await fetch('http://localhost:8080/api/v1/telemetry/latest?farmId=1&zoneId=1');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-    client.on('connect', () => {
-      setIsConnected(true);
-      console.log('✅ Đã kết nối MQTT thành công!');
-      client.subscribe('swiftletcare/house-01/sensors');
-    });
-
-    client.on('message', (topic, message) => {
-      if (topic === 'swiftletcare/house-01/sensors') {
-        try {
-          const data = JSON.parse(message.toString());
+        const result = await response.json();
+        
+        if (result.status === 200 && result.data) {
+          const data = typeof result.data === 'string' ? JSON.parse(result.data) : result.data;
+          
           setHouses((prev) =>
             prev.map((house) =>
               house.id === 'house-01'
@@ -77,37 +67,66 @@ export default function DashboardOverviewPage() {
                     ...house,
                     temperature: data.temperature ?? house.temperature,
                     humidity: data.humidity ?? house.humidity,
-                    co2: data.co2 ?? house.co2,
-                    mistingActive: data.mistingActive ?? house.mistingActive,
+                    co2: data.co2 ?? data.co2Level ?? house.co2,
+                    sound: data.sound ?? data.soundDb ?? house.sound,
+                    light: data.light ?? house.light,
+                    mistingActive: data.mist === 1 || data.mistingActive || house.mistingActive,
+                    status: 'online',
                   }
                 : house
             )
           );
-        } catch (e) {
-          console.error('Lỗi parse JSON MQTT:', e);
+          setConnectionStatus('connected');
+          setErrorMessage(null);
+        } else {
+          // KHÔNG dùng dữ liệu mẫu khi API lỗi/trống -> Reset về '--' và offline
+          setConnectionStatus('error');
+          setErrorMessage('Phản hồi từ Server không hợp lệ hoặc dữ liệu trống.');
+          setHouses((prev) =>
+            prev.map((house) =>
+              house.id === 'house-01'
+                ? {
+                    ...house,
+                    status: 'offline',
+                    temperature: '--',
+                    humidity: '--',
+                    co2: '--',
+                    sound: '--',
+                    light: '--',
+                    mistingActive: false,
+                  }
+                : house
+            )
+          );
         }
+      } catch (err) {
+        console.error('Lỗi kết nối Backend:', err);
+        setConnectionStatus('error');
+        setErrorMessage('Không thể kết nối đến Backend (Kiểm tra lại Spring Boot hoặc Redis).');
+        // KHÔNG dùng dữ liệu mẫu khi mất kết nối -> Xóa sạch dữ liệu hiển thị thành '--'
+        setHouses((prev) =>
+          prev.map((house) =>
+            house.id === 'house-01'
+              ? {
+                  ...house,
+                  status: 'offline',
+                  temperature: '--',
+                  humidity: '--',
+                  co2: '--',
+                  sound: '--',
+                  light: '--',
+                  mistingActive: false,
+                }
+              : house
+          )
+        );
       }
-    });
-
-    setMqttClient(client);
-
-    return () => {
-      client.end();
     };
-  }, []);
 
-  // Hàm giả lập gửi dữ liệu cảm biến qua MQTT
-  const handleSimulateMqttData = () => {
-    if (mqttClient) {
-      const fakeData = {
-        temperature: parseFloat((27 + Math.random() * 6).toFixed(1)),
-        humidity: parseFloat((70 + Math.random() * 20).toFixed(1)),
-        co2: Math.floor(500 + Math.random() * 400),
-        mistingActive: Math.random() > 0.5,
-      };
-      mqttClient.publish('swiftletcare/house-01/sensors', JSON.stringify(fakeData));
-    }
-  };
+    fetchRealtimeData();
+    const interval = setInterval(fetchRealtimeData, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -117,186 +136,248 @@ export default function DashboardOverviewPage() {
           <p className="text-sm text-gray-500">Giám sát vi khí hậu & đếm chim AI thời gian thực.</p>
         </div>
 
+        {/* Badge trạng thái kết nối động (Xử lý lỗi / mất dữ liệu) */}
         <div className="flex items-center gap-3">
-          <span
-            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
-              isConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            <span
-              className={`mr-1.5 h-2 w-2 rounded-full ${
-                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'
-              }`}
-            ></span>
-            {isConnected ? 'MQTT Online' : 'MQTT Disconnected'}
-          </span>
-
-          <button
-            onClick={handleSimulateMqttData}
-            className="rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
-          >
-            ⚡ Test Cảm biến (Simulate)
-          </button>
+          {connectionStatus === 'connected' && (
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+              <span className="mr-1.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Đã kết nối (Real-time Polling)
+            </span>
+          )}
+          {connectionStatus === 'loading' && (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+              <span className="mr-1.5 h-2 w-2 rounded-full bg-amber-500 animate-ping"></span>
+              Đang kết nối thiết bị...
+            </span>
+          )}
+          {connectionStatus === 'error' && (
+            <span className="inline-flex items-center rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-800">
+              <span className="mr-1.5 h-2 w-2 rounded-full bg-rose-500"></span>
+              Mất kết nối / Lỗi dữ liệu
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Banner thông báo lỗi chi tiết nếu mất kết nối */}
+      {errorMessage && (
+        <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span><strong>Cảnh báo hệ thống:</strong> {errorMessage}</span>
+          </div>
+          <span className="text-xs text-rose-500 italic">Đang tự động thử lại mỗi 5s...</span>
+        </div>
+      )}
   
       {/* Khu vực video camera nhà yến */}
-<div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-  <h2 className="mb-2 text-lg font-semibold text-gray-800">
-    Camera nhà yến
-  </h2>
+      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-2 text-lg font-semibold text-gray-800">
+          Camera nhà yến
+        </h2>
 
-  <p className="mb-4 text-sm text-gray-500">
-    Tải video từ máy tính để xem và phân tích hoạt động của chim yến.
-  </p>
+        <p className="mb-4 text-sm text-gray-500">
+          Tải video từ máy tính để xem và phân tích hoạt động của chim yến.
+        </p>
 
-  {/* Chọn video */}
-  <div className="flex flex-wrap items-center gap-3">
-    <label
-      htmlFor="swiftlet-video"
-      className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-    >
-      📁 Chọn video
-    </label>
+        {/* Chọn video */}
+        <div className="flex flex-wrap items-center gap-3">
+          <label
+            htmlFor="swiftlet-video"
+            className="cursor-pointer rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+          >
+            📁 Chọn video
+          </label>
 
-    <input
-      id="swiftlet-video"
-      type="file"
-      accept="video/*"
-      hidden
-      onChange={(event) => {
-        const file = event.target.files?.[0];
+          <input
+            id="swiftlet-video"
+            type="file"
+            accept="video/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
 
-        if (file) {
-          setVideoUrl((oldUrl) => {
-            if (oldUrl) URL.revokeObjectURL(oldUrl);
-            return URL.createObjectURL(file);
-          });
+              if (file) {
+                setVideoUrl((oldUrl) => {
+                  if (oldUrl) URL.revokeObjectURL(oldUrl);
+                  return URL.createObjectURL(file);
+                });
 
-          setVideoName(file.name);
-        }
-      }}
-    />
+                setVideoName(file.name);
+              }
+            }}
+          />
 
-    <span className="text-sm text-gray-500">
-      {videoName || "Chưa chọn file video"}
-    </span>
-  </div>
+          <span className="text-sm text-gray-500">
+            {videoName || "Chưa chọn file video"}
+          </span>
+        </div>
 
-  {/* Khung phát video */}
-  {videoUrl ? (
-    <div className="mt-5">
-      <video
-        id="swiftlet-video-player"
-        src={videoUrl}
-        controls
-        className="w-full rounded-lg bg-black"
-        style={{ maxHeight: "480px" }}
-      />
+        {/* Khung phát video */}
+        {videoUrl ? (
+          <div className="mt-5">
+            <video
+              id="swiftlet-video-player"
+              src={videoUrl}
+              controls
+              className="w-full rounded-lg bg-black"
+              style={{ maxHeight: "480px" }}
+            />
 
-      <div className="mt-4 flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => {
-            const video = document.getElementById(
-              "swiftlet-video-player"
-            ) as HTMLVideoElement | null;
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const video = document.getElementById(
+                    "swiftlet-video-player"
+                  ) as HTMLVideoElement | null;
 
-            video?.play();
-          }}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-        >
-          ▶ Bắt đầu phát
-        </button>
+                  video?.play();
+                }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
+              >
+                ▶ Bắt đầu phát
+              </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setVideoUrl((oldUrl) => {
-              if (oldUrl) URL.revokeObjectURL(oldUrl);
-              return "";
-            });
-            setVideoName("");
+              <button
+                type="button"
+                onClick={() => {
+                  setVideoUrl((oldUrl) => {
+                    if (oldUrl) URL.revokeObjectURL(oldUrl);
+                    return "";
+                  });
+                  setVideoName("");
 
-            const input = document.getElementById(
-              "swiftlet-video"
-            ) as HTMLInputElement | null;
+                  const input = document.getElementById(
+                    "swiftlet-video"
+                  ) as HTMLInputElement | null;
 
-            if (input) input.value = "";
-          }}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-        >
-          ✕ Xóa video
-        </button>
+                  if (input) input.value = "";
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                ✕ Xóa video
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 flex min-h-56 flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center">
+            <span className="text-4xl">🎥</span>
+            <p className="mt-3 font-medium text-gray-700">
+              Chưa có video
+            </p>
+            <p className="mt-1 text-sm text-gray-500">
+              Nhấn “Chọn video” để tải video nhà yến từ máy tính.
+            </p>
+          </div>
+        )}
       </div>
-    </div>
-  ) : (
-    <div className="mt-5 flex min-h-56 flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 p-6 text-center">
-      <span className="text-4xl">🎥</span>
-      <p className="mt-3 font-medium text-gray-700">
-        Chưa có video
-      </p>
-      <p className="mt-1 text-sm text-gray-500">
-        Nhấn “Chọn video” để tải video nhà yến từ máy tính.
-      </p>
-    </div>
-  )}
-</div>
 
-      {/* Danh sách nhà yến */}
+      {/* Thông tin nhà yến duy nhất */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {houses.map((house) => {
-          const isTempWarning = house.temperature > 31;
-          const isHumidWarning = house.humidity < 75;
+          // Tính toán trạng thái dựa trên số đo thực tế
+          const isNoData = house.temperature === '--' || house.humidity === '--';
+          const isTempWarning = !isNoData && Number(house.temperature) > 31;
+          const isHumidWarning = !isNoData && Number(house.humidity) < 75;
+          const hasWarning = isTempWarning || isHumidWarning;
+
+          // Xác định nhãn hiển thị động
+          let statusText = 'Đang cập nhật';
+          let statusColorClass = 'bg-gray-100 text-gray-600';
+          let borderIndicatorColor = 'bg-gray-300';
+
+          if (isNoData || connectionStatus === 'error' || house.status === 'offline') {
+            statusText = 'Mất kết nối / Chưa có dữ liệu';
+            statusColorClass = 'bg-gray-100 text-gray-600';
+            borderIndicatorColor = 'bg-gray-300';
+          } else if (hasWarning) {
+            statusText = isTempWarning && isHumidWarning ? 'Nhiệt & Độ ẩm bất thường' : isTempWarning ? 'Nhiệt độ cao' : 'Độ ẩm thấp';
+            statusColorClass = 'bg-amber-100 text-amber-800';
+            borderIndicatorColor = 'bg-amber-500';
+          } else {
+            statusText = 'Hoạt động ổn định';
+            statusColorClass = 'bg-emerald-100 text-emerald-800';
+            borderIndicatorColor = 'bg-emerald-500';
+          }
 
           return (
             <div
               key={house.id}
-              className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+              className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm relative overflow-hidden"
             >
-              <h2 className="text-lg font-semibold text-gray-800">
-                {house.name}
-              </h2>
+              {/* Thanh trạng thái màu dọc bên trái thẻ */}
+              <div className={`absolute top-0 left-0 bottom-0 w-1.5 ${
+                house.status === 'offline' ? 'bg-gray-300' :
+                isTempWarning || isHumidWarning ? 'bg-amber-500' : 'bg-emerald-500'
+              }`} />
 
-              <p className="text-sm text-gray-500">{house.location}</p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-800">
+                    {house.name}
+                  </h2>
+                  <p className="text-sm text-gray-500">{house.location}</p>
+                </div>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  house.status === 'offline' ? 'bg-gray-100 text-gray-600' :
+                  isTempWarning || isHumidWarning ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {house.status === 'offline' ? 'Mất kết nối' : isTempWarning || isHumidWarning ? 'Cảnh báo' : 'Ổn định'}
+                </span>
+              </div>
 
+              {/* Khu vực hiển thị thông số kèm đơn vị chuẩn (Xử lý thông minh khi thiếu dữ liệu) */}
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <div className="rounded-lg bg-gray-50 p-3">
                   <span className="text-xs text-gray-500">Nhiệt độ</span>
                   <p className="text-2xl font-bold">
-                    {house.temperature}°C
+                    {isNoData ? '--' : `${house.temperature}°C`}
                   </p>
                 </div>
 
                 <div className="rounded-lg bg-gray-50 p-3">
                   <span className="text-xs text-gray-500">Độ ẩm</span>
                   <p className="text-2xl font-bold">
-                    {house.humidity}%
+                    {isNoData ? '--' : `${house.humidity}%`}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 text-sm">
-                <p>CO₂: {house.co2} ppm</p>
-                <p>Chim ra: {house.birdsOutToday}</p>
-                <p>Chim vào: {house.birdsInToday}</p>
-                <p>
-                  Phun sương: {house.mistingActive ? "Đang bật" : "Đang tắt"}
-                </p>
-                <p>
-                  Trạng thái:
-                  {" "}
-                  {isTempWarning || isHumidWarning
-                    ? "Cảnh báo"
-                    : "Bình thường"}
-                </p>
+              <div className="mt-4 text-sm space-y-1.5 text-gray-600">
+                <div className="flex justify-between">
+                  <span>CO₂:</span>
+                  <span className="font-medium">{isNoData ? '--' : `${house.co2} ppm`}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Âm thanh:</span>
+                  <span className="font-medium">{house.sound !== '--' && house.sound !== undefined ? `${house.sound} dB` : '-- dB'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Ánh sáng:</span>
+                  <span className="font-medium">{house.light !== '--' && house.light !== undefined ? `${house.light} Lux` : '-- Lux'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Chim ra hôm nay:</span>
+                  <span className="font-medium">{house.birdsOutToday} con</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Chim vào hôm nay:</span>
+                  <span className="font-medium">{house.birdsInToday} con</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Phun sương:</span>
+                  <span className={`font-semibold ${house.mistingActive ? 'text-indigo-600' : 'text-gray-500'}`}>
+                    {house.mistingActive ? 'Đang bật 💧' : 'Đang tắt'}
+                  </span>
+                </div>
               </div>
 
               <Link
                 href={`/dashboard/${house.id}`}
-                className="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white"
+                className="mt-5 block w-full text-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
               >
-                Điều khiển →
+                Điều khiển chi tiết →
               </Link>
             </div>
           );

@@ -48,13 +48,30 @@ export const farmApi = {
     if (!res.ok) throw new Error("Không tải được thiết bị");
     return res.json();
   },
-  async control(deviceId: number, command: "ON" | "OFF") {
+
+  // Cập nhật command hỗ trợ cả ON, OFF, AUTO, MANUAL
+  async control(deviceId: number, command: "ON" | "OFF" | "AUTO" | "MANUAL") {
     const res = await fetch(`${API_BASE_URL}/farm/devices/control`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deviceId, command }),
     });
-    if (!res.ok) throw new Error("Gửi lệnh thất bại");
+    
+    if (!res.ok) {
+      if (res.status === 409) {
+        throw new Error("Đang có lệnh chờ cho thiết bị này, vui lòng đợi!");
+      }
+      throw new Error("Gửi lệnh thất bại");
+    }
+    return res.json(); // Trả về data chứa commandId, status, confirmed...
+  },
+
+  // Bổ sung hàm kiểm tra trạng thái lệnh qua commandId
+  async getCommandStatus(commandId: string | number) {
+    const res = await fetch(`${API_BASE_URL}/actuation/commands/${commandId}`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Không thể kiểm tra trạng thái lệnh");
     return res.json();
   },
 };
