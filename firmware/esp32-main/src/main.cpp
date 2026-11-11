@@ -1,440 +1,801 @@
-#include <Adafruit_SHT31.h>
 #include <Arduino.h>
-#include <BH1750.h>
-#include <WebServer.h>
-#include <WiFi.h>
 #include <Wire.h>
-
+#include <WiFi.h>
+#include <WebServer.h>
+#include <Adafruit_SHT31.h>
+#include <BH1750.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <sys/time.h>
+#include <esp_system.h>
+#include <esp_timer.h>
 
-
-
-#define FAN_RELAY_PIN 26
-#define FAN_SMOKE_RELAY_PIN 14
-#define MIST_RELAY_PIN 27
-#define HEATER_LED_PIN 18
-#define BUZZER_PIN 19
-#define MQ135_PIN 34
-
-const char *ap_ssid = "To yen vippro";
-const char *ap_password = "12345678";
-
-WebServer server(80);
-Adafruit_SHT31 sht31 = Adafruit_SHT31();
-BH1750 lightMeter;
-
-bool isHeaterAuto = true;
-bool isMistAuto = true;
-bool isFan1Auto = true;
-bool isFanSmokeAuto = true;
-bool isBuzzerAuto = true;
-
-unsigned long previousMillis = 0;
-float t = 0.0, h = 0.0, lux = 0.0;
-int gasValue = 0;
-
-// Wi-Fi router dùng chung với máy chạy Docker.
-// Tự điền tại máy, không cần gửi mật khẩu lên chat.
-const char *WIFI_SSID = "Haibon7979 T3";
-const char *WIFI_PASSWORD = "79797979";
-
-// IP LAN của máy chạy Docker, KHÔNG dùng localhost.
-const char *MQTT_HOST = "192.168.103.51";
-const uint16_t MQTT_PORT = 1883;
-
-const char *TELEMETRY_TOPIC = "swiftlet/telemetry/1/1";
-const char *COMMAND_TOPIC = "swiftlet/command/1/1";
-const char *BOARD_ID = "ESP32_ZONE_1";
-const char *ACK_TOPIC = "swiftlet/ack/1/1";
+#include "config.h"
+#include "thresholds.h"
 
 WiFiClient networkClient;
 PubSubClient mqttClient(networkClient);
+WebServer server(80);
 
-unsigned long lastMqttAttempt = 0;
+Adafruit_SHT31 sht31;
+BH1750 lightMeter;
+
+constexpr int DEVICE_COUNT = 5;
+const char *TARGETS[DEVICE_COUNT] = {
+    "fan", "fan_smoke", "mist", "heat", "alarm"
+};
+
+bool autoModes[DEVICE_COUNT];
+bool outputStates[DEVICE_COUNT] = {};
+
+bool shtReady = false;
+bool lightReady = false;
+bool temperatureValid = false;
+bool humidityValid = false;
+bool lightValid = false;
+
+float temperature = NAN;
+float humidity = NAN;
+float lightLux = NAN;
+int gasRaw = 0;
+
+String bootId;
+String webToken;
+
+unsigned long lastSample = 0;
+unsigned long lastHeartbeat = 0;
 unsigned long lastWifiAttempt = 0;
+unsigned long lastMqttAttempt = 0;
+unsigned long lastSensorInit = 0;
+
+uint32_t heartbeatSequence = 0;
 bool wifiWasConnected = false;
+bool timeReadyReported = false;
 
-void mqttCallback(char *topic, byte *payload, unsigned int length) {
-  if (strcmp(topic, COMMAND_TOPIC) != 0) return;
+struct CommandResult {
+  bool used = false;
+  String id;
+  String signature;
+  String ackJson;
+  uint64_t expiresAt = 0;
+  unsigned long lastAttempt = 0;
+  uint8_t attempts = 0;
+};
 
-  StaticJsonDocument<256> command;
+constexpr int CACHE_SIZE = 16;
+CommandResult results[CACHE_SIZE];
 
-  if (deserializeJson(command, payload, length)) {
-    Serial.println("[MQTT] Lenh JSON khong hop le");
-    return;
+uint64_t epochMillis() {
+  timeval tv;
+  if (gettimeofday(&tv, nullptr) != 0 || tv.tv_sec < 1704067200) {
+    return 0;
+  }
+  return uint64_t(tv.tv_sec) * 1000ULL
+         + uint64_t(tv.tv_usec) / 1000ULL;
+}
+
+int targetIndex(const String &target) {
+  for (int i = 0; i < DEVICE_COUNT; i++) {
+    if (target == TARGETS[i]) return i;
+  }
+  return -1;
+}
+
+void writeOutput(int index, bool on) {
+  uint8_t offLevel =
+      OUTPUT_ON_LEVELS[index] == HIGH ? LOW : HIGH;
+
+  digitalWrite(
+      OUTPUT_PINS[index],
+      on ? OUTPUT_ON_LEVELS[index] : offLevel
+  );
+
+  outputStates[index] =
+      digitalRead(OUTPUT_PINS[index]) == OUTPUT_ON_LEVELS[index];
+}
+
+void evaluateAuto() {
+  // Mất số đo hợp lệ: đầu ra AUTO phụ thuộc số đo đó về OFF.
+  // Đầu ra MANUAL giữ lựa chọn người dùng.
+
+  if (autoModes[0]) {
+    if (!temperatureValid) writeOutput(0, false);
+    else if (temperature >= FAN_ON_ABOVE) writeOutput(0, true);
+    else if (temperature <= FAN_OFF_BELOW) writeOutput(0, false);
   }
 
-  const char *action = command["action"] | "";
-  const char *target = command["target"] | "";
-
-  if (strcmp(action, "OVERRIDE") != 0) return;
-  if (!command["state"].is<int>()) return;
-
-  int state = command["state"].as<int>();
-
-  if (state != 0 && state != 1) return;
-
-  int pin = -1;
-  bool *autoFlag = nullptr;
-
-  if (strcmp(target, "fan") == 0) {
-    pin = FAN_RELAY_PIN;
-    autoFlag = &isFan1Auto;
-  } else if (strcmp(target, "mist") == 0) {
-    pin = MIST_RELAY_PIN;
-    autoFlag = &isMistAuto;
-  } else if (strcmp(target, "heat") == 0) {
-    pin = HEATER_LED_PIN;
-    autoFlag = &isHeaterAuto;
-  } else if (strcmp(target, "alarm") == 0) {
-    pin = BUZZER_PIN;
-    autoFlag = &isBuzzerAuto;
-  } else {
-    Serial.printf("[MQTT] Target chua ho tro: %s\n", target);
-    return;
+  if (autoModes[1]) {
+    if (gasRaw >= GAS_ON_ABOVE) writeOutput(1, true);
+    else if (gasRaw <= GAS_OFF_BELOW) writeOutput(1, false);
   }
 
-  *autoFlag = false;
-  digitalWrite(pin, state == 1 ? HIGH : LOW);
+  if (autoModes[2]) {
+    if (!humidityValid) writeOutput(2, false);
+    else if (humidity <= MIST_ON_BELOW) writeOutput(2, true);
+    else if (humidity >= MIST_OFF_ABOVE) writeOutput(2, false);
+  }
+
+  if (autoModes[3]) {
+    if (!temperatureValid) writeOutput(3, false);
+    else if (temperature <= HEAT_ON_BELOW) writeOutput(3, true);
+    else if (temperature >= HEAT_OFF_ABOVE) writeOutput(3, false);
+  }
+
+  if (autoModes[4]) {
+    if (gasRaw >= GAS_ON_ABOVE) writeOutput(4, true);
+    else if (gasRaw <= GAS_OFF_BELOW) writeOutput(4, false);
+  }
+}
+
+void initializeSensors() {
+  shtReady = sht31.begin(0x44);
+  lightReady =
+      lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
 
   Serial.printf(
-      "[MQTT] Da dieu khien %s = %d\n",
-      target,
-      state
+      "[SENSOR] SHT31=%s BH1750=%s\n",
+      shtReady ? "OK" : "FAILED",
+      lightReady ? "OK" : "FAILED"
   );
 }
 
-void maintainMqtt() {
+void readSensors() {
   unsigned long now = millis();
 
-  if (WiFi.status() != WL_CONNECTED) {
-    wifiWasConnected = false;
+  if ((!shtReady || !lightReady)
+      && now - lastSensorInit >= 30000) {
+    lastSensorInit = now;
 
-    if (mqttClient.connected()) {
-      mqttClient.disconnect();
+    if (!shtReady) shtReady = sht31.begin(0x44);
+    if (!lightReady) {
+      lightReady =
+          lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
     }
-
-    if (now - lastWifiAttempt >= 15000) {
-      lastWifiAttempt = now;
-      WiFi.reconnect();
-    }
-
-    return;
   }
 
-  if (!wifiWasConnected) {
-    wifiWasConnected = true;
-    Serial.print("[WiFi] IP LAN ESP32: ");
-    Serial.println(WiFi.localIP());
+  temperature = shtReady ? sht31.readTemperature() : NAN;
+  humidity = shtReady ? sht31.readHumidity() : NAN;
+  lightLux = lightReady ? lightMeter.readLightLevel() : NAN;
+
+  temperatureValid =
+      isfinite(temperature)
+      && temperature >= -40 && temperature <= 125;
+
+  humidityValid =
+      isfinite(humidity)
+      && humidity >= 0 && humidity <= 100;
+
+  lightValid = isfinite(lightLux) && lightLux >= 0;
+
+  uint32_t sum = 0;
+  for (int i = 0; i < 8; i++) {
+    sum += analogRead(MQ135_PIN);
+  }
+  gasRaw = int(sum / 8);
+
+  Serial.printf(
+      "[SENSOR] temp=%.2f hum=%.2f light=%.1f gasRaw=%d\n",
+      temperature, humidity, lightLux, gasRaw
+  );
+
+  evaluateAuto();
+}
+
+void fillSnapshot(JsonObject root) {
+  root["boardId"] = BOARD_ID;
+  root["deviceId"] = BOARD_ID;
+  root["bootId"] = bootId;
+  root["farmId"] = 1;
+  root["zoneId"] = 1;
+
+  if (temperatureValid) root["temp"] = temperature;
+  if (humidityValid) root["hum"] = humidity;
+  if (lightValid) root["light"] = int(lightLux);
+
+  root["gasRaw"] = gasRaw;
+  root["clockReady"] = epochMillis() != 0;
+
+  JsonObject relays = root.createNestedObject("relays");
+  JsonObject modes = root.createNestedObject("modes");
+
+  for (int i = 0; i < DEVICE_COUNT; i++) {
+    relays[TARGETS[i]] = outputStates[i] ? 1 : 0;
+    modes[TARGETS[i]] = autoModes[i] ? "AUTO" : "MANUAL";
   }
 
-  if (!mqttClient.connected()) {
-    if (now - lastMqttAttempt < 5000) return;
+  JsonObject valid = root.createNestedObject("valid");
+  valid["temp"] = temperatureValid;
+  valid["hum"] = humidityValid;
+  valid["light"] = lightValid;
 
-    lastMqttAttempt = now;
-
-    String clientId = "swiftlet-";
-    clientId += WiFi.macAddress();
-
-    if (mqttClient.connect(clientId.c_str())) {
-      bool subscribed = mqttClient.subscribe(COMMAND_TOPIC, 1);
-
-      Serial.printf(
-          "[MQTT] Connected; subscribe = %s\n",
-          subscribed ? "OK" : "FAILED"
-      );
-    } else {
-      Serial.printf(
-          "[MQTT] Ket noi loi, state = %d\n",
-          mqttClient.state()
-      );
-    }
-
-    return;
-  }
-
-  mqttClient.loop();
+  // Chưa có driver/công thức CO2 được xác nhận.
+  // Không biến gasRaw thành ppm hoặc gửi CO2 giả.
+  valid["co2"] = false;
 }
 
 void publishTelemetry() {
   if (!mqttClient.connected()) return;
 
-  if (!isfinite(t) || !isfinite(h)) {
-    Serial.println("[MQTT] Bo qua mau nhiet/am khong hop le");
+  StaticJsonDocument<1024> doc;
+  fillSnapshot(doc.to<JsonObject>());
+
+  char buffer[1024];
+  serializeJson(doc, buffer, sizeof(buffer));
+
+  bool sent = mqttClient.publish(TELEMETRY_TOPIC, buffer, false);
+
+  Serial.printf(
+      "[Telemetry] %s: %s\n",
+      sent ? "SENT" : "FAILED", buffer
+  );
+}
+
+void publishHeartbeat() {
+  if (!mqttClient.connected()) return;
+
+  StaticJsonDocument<1024> doc;
+  fillSnapshot(doc.to<JsonObject>());
+
+  doc["seq"] = ++heartbeatSequence;
+  doc["uptimeMs"] = uint64_t(esp_timer_get_time() / 1000);
+
+  char buffer[1024];
+  serializeJson(doc, buffer, sizeof(buffer));
+  mqttClient.publish(HEARTBEAT_TOPIC, buffer, false);
+}
+
+String makeAck(
+    const String &id,
+    const String &target,
+    bool success,
+    int state,
+    const String &mode,
+    const char *message
+) {
+  StaticJsonDocument<512> doc;
+
+  doc["commandId"] = id;
+  doc["boardId"] = BOARD_ID;
+  doc["target"] = target;
+  doc["success"] = success;
+  doc["state"] = state;
+  doc["mode"] = mode;
+  doc["message"] = message;
+
+  String output;
+  serializeJson(doc, output);
+  return output;
+}
+
+void publishAck(const String &json) {
+  bool sent = mqttClient.publish(ACK_TOPIC, json.c_str(), false);
+  Serial.printf("[ACK] %s: %s\n",
+                sent ? "SENT" : "FAILED", json.c_str());
+}
+
+void rejectCommand(
+    const String &id,
+    const String &target,
+    const char *reason
+) {
+  publishAck(makeAck(
+      id, target, false, -1, "UNKNOWN", reason
+  ));
+}
+
+void retryAcks() {
+  if (!mqttClient.connected()) return;
+
+  unsigned long now = millis();
+  uint64_t utc = epochMillis();
+
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    CommandResult &r = results[i];
+
+    if (!r.used || r.attempts >= 3) continue;
+    if (utc == 0 || utc >= r.expiresAt) continue;
+    if (now - r.lastAttempt < 1000) continue;
+
+    r.lastAttempt = now;
+    r.attempts++;
+    publishAck(r.ackJson);
+  }
+}
+
+bool applyOperation(int index, const String &operation) {
+  if (index < 0 || index >= DEVICE_COUNT) return false;
+
+  if (operation == "ON" || operation == "OFF") {
+    autoModes[index] = false;
+    bool requested = operation == "ON";
+    writeOutput(index, requested);
+    return outputStates[index] == requested;
+  }
+
+  if (operation == "AUTO") {
+    autoModes[index] = true;
+    evaluateAuto();
+    return true;
+  }
+
+  if (operation == "MANUAL") {
+    autoModes[index] = false;
+    return true;
+  }
+
+  return false;
+}
+
+void mqttCallback(char *topic, byte *payload, unsigned int length) {
+  if (strcmp(topic, COMMAND_TOPIC) != 0) return;
+
+  StaticJsonDocument<1024> doc;
+
+  if (deserializeJson(doc, payload, length)) {
+    Serial.println("[CMD] Invalid JSON");
     return;
   }
 
-  StaticJsonDocument<512> document;
+  // Copy trước khi publish vì client dùng buffer chung.
+  String id = doc["commandId"] | "";
+  String board = doc["boardId"] | "";
+  String target = doc["target"] | "";
+  String action = doc["action"] | "";
+  String mode = doc["mode"] | "";
 
-  document["deviceId"] = "ESP32_ZONE_1";
-  document["farmId"] = 1;
-  document["zoneId"] = 1;
-  document["temp"] = t;
-  document["hum"] = h;
+  if (id.length() != 36 || board != BOARD_ID) return;
 
-  if (isfinite(lux) && lux >= 0) {
-    // BE hiện nhận light là số nguyên.
-    document["light"] = (int)lux;
+  if (!doc["expiresAt"].is<uint64_t>()) {
+    rejectCommand(id, target, "Missing expiresAt");
+    return;
   }
 
-  JsonObject relays = document.createNestedObject("relays");
-  relays["fan"] = digitalRead(FAN_RELAY_PIN) == HIGH ? 1 : 0;
-  relays["mist"] = digitalRead(MIST_RELAY_PIN) == HIGH ? 1 : 0;
-  relays["heat"] = digitalRead(HEATER_LED_PIN) == HIGH ? 1 : 0;
-  relays["alarm"] = digitalRead(BUZZER_PIN) == HIGH ? 1 : 0;
+  uint64_t expiresAt = doc["expiresAt"].as<uint64_t>();
+  String operation;
+  int requestedState = -1;
 
-  char payload[512];
-  serializeJson(document, payload, sizeof(payload));
+  if (action == "OVERRIDE") {
+    if (!doc["state"].is<int>()) {
+      rejectCommand(id, target, "Invalid state");
+      return;
+    }
 
-  bool sent = mqttClient.publish(TELEMETRY_TOPIC, payload);
+    requestedState = doc["state"].as<int>();
 
-  Serial.printf("[Telemetry] %s: %s\n",
-                sent ? "SENT" : "FAILED", payload);
+    if (requestedState != 0 && requestedState != 1) {
+      rejectCommand(id, target, "State must be 0 or 1");
+      return;
+    }
+
+    if (mode.length() > 0 && mode != "MANUAL") {
+      rejectCommand(id, target, "Override requires MANUAL");
+      return;
+    }
+
+    operation = requestedState == 1 ? "ON" : "OFF";
+    mode = "MANUAL";
+
+  } else if (action == "SET_MODE") {
+    if (mode != "AUTO" && mode != "MANUAL") {
+      rejectCommand(id, target, "Invalid mode");
+      return;
+    }
+
+    operation = mode;
+
+  } else {
+    rejectCommand(id, target, "Unsupported action");
+    return;
+  }
+
+  String signature =
+      action + "|" + target + "|" + mode
+      + "|" + String(requestedState);
+
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    CommandResult &r = results[i];
+
+    if (!r.used || r.id != id) continue;
+
+    if (r.signature != signature || r.expiresAt != expiresAt) {
+      Serial.println("[CMD] Same ID with different payload");
+      return;
+    }
+
+    Serial.printf("[CMD] DUPLICATE %s\n", id.c_str());
+    publishAck(r.ackJson);
+    return;
+  }
+
+  uint64_t now = epochMillis();
+
+  if (now == 0) {
+    rejectCommand(id, target, "Clock not synchronized");
+    return;
+  }
+
+  if (expiresAt <= now) {
+    rejectCommand(id, target, "Command expired");
+    return;
+  }
+
+  if (expiresAt - now > 330000ULL) {
+    rejectCommand(id, target, "Invalid expiry or clock mismatch");
+    return;
+  }
+
+  int index = targetIndex(target);
+
+  if (index < 0) {
+    rejectCommand(id, target, "Unsupported target");
+    return;
+  }
+
+  int slot = -1;
+
+  for (int i = 0; i < CACHE_SIZE; i++) {
+    if (!results[i].used || results[i].expiresAt <= now) {
+      slot = i;
+      break;
+    }
+  }
+
+  if (slot < 0) {
+    rejectCommand(id, target, "Command cache full");
+    return;
+  }
+
+  bool applied = applyOperation(index, operation);
+  String actualMode = autoModes[index] ? "AUTO" : "MANUAL";
+
+  CommandResult &r = results[slot];
+  r.used = true;
+  r.id = id;
+  r.signature = signature;
+  r.expiresAt = expiresAt;
+  r.lastAttempt = millis();
+  r.attempts = 1;
+  r.ackJson = makeAck(
+      id, target, applied,
+      outputStates[index] ? 1 : 0,
+      actualMode,
+      applied ? "Applied" : "GPIO verification failed"
+  );
+
+  Serial.printf(
+      "[CMD] APPLIED id=%s target=%s operation=%s\n",
+      id.c_str(), target.c_str(), operation.c_str()
+  );
+
+  publishAck(r.ackJson);
+  lastHeartbeat = 0;
 }
 
-// Giao diện Web HTML (Đã nhúng JavaScript tự cập nhật)
-String getHTML() {
-  String html =
-      "<!DOCTYPE html><html lang='vi'><head><meta charset='UTF-8'><meta "
-      "name='viewport' content='width=device-width, initial-scale=1.0'>";
-  html += "<title>Bảng Điều Khiển</title>";
-  html += "<style>";
-  html += "body { font-family: Arial; text-align: center; background-color: "
-          "#f4f4f9; padding: 20px; }";
-  html += ".card { background: white; padding: 15px; border-radius: 10px; "
-          "box-shadow: 0px 4px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }";
-  html += "h1 { color: #333; }";
-  html += ".btn { display: inline-block; padding: 10px 20px; font-size: 16px; "
-          "margin: 5px; border-radius: 5px; text-decoration: none; "
-          "font-weight: bold; border: none; cursor: pointer;}";
-  html += ".btn-auto { background-color: #ffc107; color: black; }";
-  html += ".btn-on { background-color: #28a745; color: white; }";
-  html += ".btn-off { background-color: #dc3545; color: white; }";
-  html += ".data { font-size: 18px; font-weight: bold; color: #555; }";
-  html += ".tag { font-size: 14px; padding: 3px 8px; border-radius: 12px; "
-          "margin-left: 10px; }";
-  html += ".tag-auto { background: #28a745; color: white; }";
-  html += ".tag-manual { background: #dc3545; color: white; }";
-  html += "</style></head><body>";
+void maintainConnections() {
+  unsigned long now = millis();
 
-  html += "<h1>QUẢN LÝ CHUỒNG ẤP</h1>";
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiWasConnected = false;
 
-  // Thẻ hiển thị Cảm biến (Gắn ID để JavaScript tìm và thay số)
-  html += "<div class='card'>";
-  html += "<h2>Thông số Môi trường</h2>";
-  html += "<p class='data'>Nhiệt độ: <span id='t_val'>" + String(t, 1) +
-          "</span> °C | Độ ẩm: <span id='h_val'>" + String(h, 1) +
-          "</span> %</p>";
-  html += "<p class='data'>Ánh sáng: <span id='lux_val'>" + String(lux, 0) +
-          "</span> lx | Khí Gas/Khói: <span id='gas_val'>" + String(gasValue) +
-          "</span></p>";
-  html += "</div>";
+    if (mqttClient.connected()) mqttClient.disconnect();
 
-  html += "<div class='card'>";
-  html += "<h2>Bảng Điều Khiển</h2>";
-  html += "<a href='/resetAuto' class='btn btn-auto' style='margin-bottom: "
-          "15px;'>Bật Lại Tự Động Toàn Bộ</a><hr>";
+    if (now - lastWifiAttempt >= WIFI_RETRY_MS) {
+      lastWifiAttempt = now;
+      Serial.println("[WiFi] Reconnecting...");
+      WiFi.reconnect();
+    }
+    return;
+  }
 
-  bool fan1State = digitalRead(FAN_RELAY_PIN);
-  bool fan2State = digitalRead(FAN_SMOKE_RELAY_PIN);
-  bool mistState = digitalRead(MIST_RELAY_PIN);
-  bool heaterState = digitalRead(HEATER_LED_PIN);
-  bool buzzerState = digitalRead(BUZZER_PIN);
-  // Hàm con tạo HTML cho từng món, gắn thêm ID trạng thái
-  auto renderDevice = [](String name, bool state, bool isAuto, String onUrl,
-                         String offUrl, String id) {
-    String tag = isAuto ? "<span class='tag tag-auto'>Tự Động</span>"
-                        : "<span class='tag tag-manual'>Thủ Công</span>";
-    String str = "<h3>" + name + " - Đang: <span id='" + id + "'>" +
-                 (state ? "BẬT" : "TẮT") + "</span>" + tag + "</h3>";
-    str += "<a href='" + onUrl + "' class='btn btn-on'>BẬT</a> <a href='" +
-           offUrl + "' class='btn btn-off'>TẮT</a>";
-    return str;
-  };
+  if (!wifiWasConnected) {
+    wifiWasConnected = true;
+    Serial.print("[WiFi] LAN IP: ");
+    Serial.println(WiFi.localIP());
 
-  html += renderDevice("Lò Sưởi", heaterState, isHeaterAuto, "/heater/on",
-                       "/heater/off", "st_heater");
-  html += renderDevice("Phun Sương", mistState, isMistAuto, "/mist/on",
-                       "/mist/off", "st_mist");
-  html += renderDevice("Tản Nhiệt (Quạt 1)", fan1State, isFan1Auto, "/fan1/on",
-                       "/fan1/off", "st_fan1");
-  html += renderDevice("Hút Khói (Quạt 2)", fan2State, isFanSmokeAuto,
-                       "/fan2/on", "/fan2/off", "st_fan2");
-  html += renderDevice("Còi Báo Động", buzzerState, isBuzzerAuto, "/buzzer/on",
-                       "/buzzer/off", "st_buzzer");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  }
 
-  html += "</div>";
+  if (!timeReadyReported && epochMillis() != 0) {
+    timeReadyReported = true;
+    Serial.println("[TIME] READY");
+  }
 
-  // ĐOẠN SCRIPT THẦN THÁNH: Tự động chạy ngầm mỗi 2 giây
-  html += "<script>";
-  html += "setInterval(function() {";
-  html += "  fetch('/data').then(response => response.json()).then(data => {";
-  html += "    document.getElementById('t_val').innerText = data.t;";
-  html += "    document.getElementById('h_val').innerText = data.h;";
-  html += "    document.getElementById('lux_val').innerText = data.lux;";
-  html += "    document.getElementById('gas_val').innerText = data.gas;";
-  html += "    document.getElementById('st_heater').innerText = data.heater;";
-  html += "    document.getElementById('st_mist').innerText = data.mist;";
-  html += "    document.getElementById('st_fan1').innerText = data.fan1;";
-  html += "    document.getElementById('st_fan2').innerText = data.fan2;";
-  html += "    document.getElementById('st_buzzer').innerText = data.buzzer;";
-  html += "  });";
-  html += "}, 2000);";
-  html += "</script>";
-  html += "</body></html>";
-  return html;
+  if (!mqttClient.connected()) {
+    if (now - lastMqttAttempt < MQTT_RETRY_MS) return;
+    lastMqttAttempt = now;
+
+    StaticJsonDocument<256> status;
+    status["boardId"] = BOARD_ID;
+    status["bootId"] = bootId;
+    status["online"] = false;
+
+    char will[256];
+    serializeJson(status, will, sizeof(will));
+
+    String clientId = String("swiftlet-") + WiFi.macAddress();
+
+    bool connected = mqttClient.connect(
+        clientId.c_str(),
+        STATUS_TOPIC,
+        1,
+        true,
+        will
+    );
+
+    if (!connected) {
+      Serial.printf("[MQTT] state=%d\n", mqttClient.state());
+      return;
+    }
+
+    if (!mqttClient.subscribe(COMMAND_TOPIC, 1)) {
+      Serial.println("[MQTT] Subscribe failed");
+      mqttClient.disconnect();
+      return;
+    }
+
+    status["online"] = true;
+    char online[256];
+    serializeJson(status, online, sizeof(online));
+    mqttClient.publish(STATUS_TOPIC, online, true);
+
+    Serial.println("[MQTT] Connected; subscribe=OK");
+    publishHeartbeat();
+    lastHeartbeat = now;
+  }
+
+  mqttClient.loop();
 }
 
-void handleRoot() { server.send(200, "text/html", getHTML()); }
-
-// HÀM MỚI: Trả về cục dữ liệu JSON cho JavaScript đọc ngầm
-void handleData() {
-  String json = "{";
-  json += "\"t\":\"" + String(t, 1) + "\",";
-  json += "\"h\":\"" + String(h, 1) + "\",";
-  json += "\"lux\":\"" + String(lux, 0) + "\",";
-  json += "\"gas\":\"" + String(gasValue) + "\",";
-  json += "\"heater\":\"" +
-          String(digitalRead(HEATER_LED_PIN) ? "BẬT" : "TẮT") + "\",";
-  json += "\"mist\":\"" + String(digitalRead(MIST_RELAY_PIN) ? "BẬT" : "TẮT") +
-          "\",";
-  json += "\"fan1\":\"" + String(digitalRead(FAN_RELAY_PIN) ? "BẬT" : "TẮT") +
-          "\",";
-  json += "\"fan2\":\"" +
-          String(digitalRead(FAN_SMOKE_RELAY_PIN) ? "BẬT" : "TẮT") + "\",";
-  json +=
-      "\"buzzer\":\"" + String(digitalRead(BUZZER_PIN) ? "BẬT" : "TẮT") + "\"";
-  json += "}";
-  server.send(200, "application/json", json);
-}
-void handleResetAuto() {
-  isHeaterAuto = true;
-  isMistAuto = true;
-  isFan1Auto = true;
-  isFanSmokeAuto = true;
-  isBuzzerAuto = true;
-  server.sendHeader("Location", "/");
-  server.send(303);
+bool webAuthorized() {
+  if (server.authenticate(WEB_USER, WEB_PASSWORD)) return true;
+  server.requestAuthentication();
+  return false;
 }
 
-void controlDevice(int pin, int state, bool &autoFlag) {
-  autoFlag = false;
-  digitalWrite(pin, state);
-  server.sendHeader("Location", "/");
-  server.send(303);
+void handleWebData() {
+  if (!webAuthorized()) return;
+
+  StaticJsonDocument<1024> doc;
+  fillSnapshot(doc.to<JsonObject>());
+
+  String output;
+  serializeJson(doc, output);
+
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", output);
 }
 
+void handleWebCommand() {
+  if (!webAuthorized()) return;
+
+  if (server.header("X-Control-Token") != webToken) {
+    server.send(403, "text/plain", "Invalid control token");
+    return;
+  }
+
+  String target = server.arg("target");
+  String operation = server.arg("command");
+  operation.toUpperCase();
+
+  if (operation != "ON" && operation != "OFF"
+      && operation != "AUTO" && operation != "MANUAL") {
+    server.send(400, "text/plain", "Invalid command");
+    return;
+  }
+
+  int index = targetIndex(target);
+
+  if (index < 0) {
+    server.send(400, "text/plain", "Invalid target");
+    return;
+  }
+
+  bool applied = applyOperation(index, operation);
+
+  if (mqttClient.connected()) publishHeartbeat();
+
+  server.send(
+      applied ? 200 : 500,
+      "text/plain",
+      applied ? "Applied" : "Failed"
+  );
+}
+
+void handleWebRoot() {
+  if (!webAuthorized()) return;
+
+  String html = R"HTML(
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SwiftletCare ESP32</title>
+<style>
+body{font-family:Arial;max-width:900px;margin:25px auto;padding:15px}
+button{margin:4px;padding:8px}
+section{padding:12px;border:1px solid #ddd;margin:10px 0}
+pre{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>SwiftletCare — Điều khiển cục bộ</h2>
+<p id="message"></p>
+<pre id="sensors">Đang tải...</pre>
+<div id="devices"></div>
+<script>
+const token="{{TOKEN}}";
+const targets=["fan","fan_smoke","mist","heat","alarm"];
+const root=document.getElementById("devices");
+for(const target of targets){
+  const box=document.createElement("section");
+  const label=document.createElement("strong");
+  label.id="label-"+target;
+  label.textContent=target;
+  box.appendChild(label);
+  box.appendChild(document.createElement("br"));
+  for(const operation of ["ON","OFF","AUTO","MANUAL"]){
+    const button=document.createElement("button");
+    button.textContent=operation;
+    button.onclick=()=>send(target,operation);
+    box.appendChild(button);
+  }
+  root.appendChild(box);
+}
+async function load(){
+  try{
+    const response=await fetch("/data",{cache:"no-store"});
+    if(!response.ok) throw new Error("HTTP "+response.status);
+    const data=await response.json();
+    document.getElementById("sensors").textContent=
+      "Nhiệt: "+(data.temp??"--")+" °C\n"+
+      "Ẩm: "+(data.hum??"--")+" %\n"+
+      "Sáng: "+(data.light??"--")+" lux\n"+
+      "Gas ADC: "+(data.gasRaw??"--");
+    for(const target of targets){
+      document.getElementById("label-"+target).textContent=
+        target+" | "+(data.relays[target]===1?"ON":"OFF")
+        +" | "+data.modes[target];
+    }
+  }catch(error){
+    document.getElementById("message").textContent=error.message;
+  }
+}
+async function send(target,command){
+  try{
+    const response=await fetch("/control",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/x-www-form-urlencoded",
+        "X-Control-Token":token
+      },
+      body:new URLSearchParams({target,command})
+    });
+    document.getElementById("message").textContent=
+      await response.text();
+    await load();
+  }catch(error){
+    document.getElementById("message").textContent=error.message;
+  }
+}
+load();
+setInterval(load,2000);
+</script>
+</body>
+</html>
+)HTML";
+
+  html.replace("{{TOKEN}}", webToken);
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "text/html; charset=utf-8", html);
+}
+void logWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WiFi] Router connected; waiting for IP");
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      Serial.print("[WiFi] GOT IP: ");
+      Serial.println(IPAddress(info.got_ip.ip_info.ip.addr));
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.printf(
+          "[WiFi] Disconnected; reason=%u\n",
+          static_cast<unsigned int>(
+              info.wifi_sta_disconnected.reason
+          )
+      );
+      break;
+
+    default:
+      break;
+  }
+}
 void setup() {
   Serial.begin(115200);
 
-  pinMode(FAN_RELAY_PIN, OUTPUT);
-  pinMode(FAN_SMOKE_RELAY_PIN, OUTPUT);
-  pinMode(MIST_RELAY_PIN, OUTPUT);
-  pinMode(HEATER_LED_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
+  for (int i = 0; i < DEVICE_COUNT; i++) {
+    uint8_t offLevel =
+        OUTPUT_ON_LEVELS[i] == HIGH ? LOW : HIGH;
+
+    digitalWrite(OUTPUT_PINS[i], offLevel);
+    pinMode(OUTPUT_PINS[i], OUTPUT);
+
+    autoModes[i] = BOOT_AUTO;
+    outputStates[i] = false;
+  }
+
   pinMode(MQ135_PIN, INPUT);
 
-  digitalWrite(FAN_RELAY_PIN, LOW);
-  digitalWrite(FAN_SMOKE_RELAY_PIN, LOW);
-  digitalWrite(MIST_RELAY_PIN, LOW);
-  digitalWrite(HEATER_LED_PIN, LOW);
-  digitalWrite(BUZZER_PIN, LOW);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setTimeOut(50);
 
-  Wire.begin(21, 22);
-  sht31.begin(0x44);
-  lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE);
+  initializeSensors();
+  readSensors();
 
-  Serial.println("Dang tao mang WiFi rieng...");
-  //WiFi.softAP(ap_ssid, ap_password);
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(ap_ssid, ap_password);
+  WiFi.onEvent(logWiFiEvent);
+  WiFi.mode(ENABLE_LOCAL_AP ? WIFI_AP_STA : WIFI_STA);
+
+  if (ENABLE_LOCAL_AP) {
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
+    Serial.print("[WiFi] AP IP: ");
+    Serial.println(WiFi.softAPIP());
+  }
 
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
+  bootId = WiFi.macAddress() + "-" + String(esp_random(), HEX);
+  webToken = String(esp_random(), HEX)
+      + String(esp_random(), HEX)
+      + String(esp_random(), HEX)
+      + String(esp_random(), HEX);
+
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
-  mqttClient.setBufferSize(512);
- 
+  mqttClient.setKeepAlive(15);
   mqttClient.setSocketTimeout(1);
 
-  Serial.println("[WiFi] Dang ket noi router...");
+  if (!mqttClient.setBufferSize(1536)) {
+    Serial.println("[MQTT] Buffer allocation failed");
+  }
 
-  Serial.print("IP vao trinh duyet Web: ");
-  Serial.println(WiFi.softAPIP());
+  const char *headers[] = {"Authorization", "X-Control-Token"};
+  server.collectHeaders(headers, 2);
 
-  server.on("/", handleRoot);
-  server.on("/data", handleData); // Khai báo đường dẫn cấp số liệu ngầm
-  server.on("/resetAuto", handleResetAuto);
+  server.on("/", HTTP_GET, handleWebRoot);
+  server.on("/data", HTTP_GET, handleWebData);
+  server.on("/control", HTTP_POST, handleWebCommand);
 
-  server.on("/fan1/on",
-            []() { controlDevice(FAN_RELAY_PIN, HIGH, isFan1Auto); });
-  server.on("/fan1/off",
-            []() { controlDevice(FAN_RELAY_PIN, LOW, isFan1Auto); });
-  server.on("/fan2/on",
-            []() { controlDevice(FAN_SMOKE_RELAY_PIN, HIGH, isFanSmokeAuto); });
-  server.on("/fan2/off",
-            []() { controlDevice(FAN_SMOKE_RELAY_PIN, LOW, isFanSmokeAuto); });
-  server.on("/heater/on",
-            []() { controlDevice(HEATER_LED_PIN, HIGH, isHeaterAuto); });
-  server.on("/heater/off",
-            []() { controlDevice(HEATER_LED_PIN, LOW, isHeaterAuto); });
-  server.on("/mist/on",
-            []() { controlDevice(MIST_RELAY_PIN, HIGH, isMistAuto); });
-  server.on("/mist/off",
-            []() { controlDevice(MIST_RELAY_PIN, LOW, isMistAuto); });
-  server.on("/buzzer/on",
-            []() { controlDevice(BUZZER_PIN, HIGH, isBuzzerAuto); });
-  server.on("/buzzer/off",
-            []() { controlDevice(BUZZER_PIN, LOW, isBuzzerAuto); });
+  server.onNotFound([]() {
+    if (!webAuthorized()) return;
+    server.send(404, "text/plain", "Not found");
+  });
 
   server.begin();
-  Serial.println("Server Web da khoi chay!");
+  Serial.println("[WEB] Started; authentication required");
 }
 
 void loop() {
   server.handleClient();
-  maintainMqtt();
+  maintainConnections();
+  retryAcks();
 
-  unsigned long currentMillis = millis();
+  unsigned long now = millis();
 
-  if (currentMillis - previousMillis >= 2000) {
-    previousMillis = currentMillis;
-
-    t = sht31.readTemperature();
-    h = sht31.readHumidity();
-    lux = lightMeter.readLightLevel();
-    gasValue = analogRead(MQ135_PIN);
-
-    if (!isnan(t)) {
-      if (isHeaterAuto) {
-        digitalWrite(HEATER_LED_PIN, t < 34 ? HIGH : LOW);
-      }
-
-      if (isMistAuto) {
-        digitalWrite(MIST_RELAY_PIN, h < 70 ? HIGH : LOW);
-      }
-
-      if (isFan1Auto) {
-        digitalWrite(FAN_RELAY_PIN, t > 34 ? HIGH : LOW);
-      }
-
-      if (isFanSmokeAuto) {
-        digitalWrite(
-          FAN_SMOKE_RELAY_PIN,
-          gasValue > 1500 ? HIGH : LOW
-        );
-      }
-
-      if (isBuzzerAuto) {
-        digitalWrite(
-          BUZZER_PIN,
-          gasValue > 1500 ? HIGH : LOW
-        );
-      }
-    }
-
+  if (now - lastSample >= SAMPLE_INTERVAL_MS) {
+    lastSample = now;
+    readSensors();
     publishTelemetry();
   }
+
+  if (mqttClient.connected()
+      && now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+    lastHeartbeat = now;
+    publishHeartbeat();
+  }
+
+  delay(1);
 }
