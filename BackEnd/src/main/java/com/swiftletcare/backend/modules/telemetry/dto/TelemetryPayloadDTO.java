@@ -25,8 +25,6 @@ public class TelemetryPayloadDTO {
     @JsonProperty("light")
     private Integer light;
 
-    @JsonProperty("sound")
-    private Double sound;
 
     private Integer fan;
     private Integer mist;

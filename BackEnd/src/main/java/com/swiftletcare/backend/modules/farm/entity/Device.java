@@ -20,7 +20,7 @@ public class Device {
     private String name;
 
     @Column(nullable = false)
-    private String deviceType; // HUMIDIFIER, FAN, LIGHT, SOUND
+    private String deviceType; // HUMIDIFIER, FAN, LIGHT
 
     @Column(nullable = false)
     private String status; // ON, OFF

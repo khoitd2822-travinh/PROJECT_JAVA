@@ -72,7 +72,7 @@ public class TelemetryController {
             point.put("temperature", row.getTemperature());
             point.put("humidity", row.getHumidity());
             point.put("co2", row.getCo2Level());
-            point.put("sound", row.getSoundDb());
+            
             points.add(point);
         }
         Map<String, Object> response = new HashMap<>();

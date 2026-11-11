@@ -54,7 +54,7 @@ public class TelemetryProcessingService {
             telemetry.setHumidity(dto.getHumidity());
             telemetry.setCo2Level(dto.getCo2());
             telemetry.setLightLevel(dto.getLight());
-            telemetry.setSoundDb(dto.getSound() != null ? dto.getSound() : 65.0);
+            
             telemetry.setFanState(dto.getFan() != null && dto.getFan() == 1);
             telemetry.setMistState(dto.getMist() != null && dto.getMist() == 1);
             telemetry.setHeaterState(dto.getHeat() != null && dto.getHeat() == 1);

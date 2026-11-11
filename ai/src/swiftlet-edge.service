@@ -1,0 +1,14 @@
+[Unit]
+Description=SwiftletCare Python Edge Background Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/swiftletcare/edge
+ExecStart=/usr/bin/python3 /opt/swiftletcare/edge/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
