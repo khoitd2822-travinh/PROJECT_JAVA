@@ -21,7 +21,7 @@ import sys
 import threading
 import time
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -33,7 +33,9 @@ from alerts import PredatorFilter, parse_conf_map
 from line_ui import ActionBar, edit_line, fit_scale
 from mqtt_publisher import build_publisher
 from perf import ResourceMonitor, format_summary
-from state import read_state, resolve, write_state
+from snapshot_storage import SnapshotStorage
+from state import VIETNAM_TZ, operating_date, read_state, resolve, write_state
+from uuid import uuid4
 
 HERE = Path(__file__).resolve().parent
 PROJECT = Path(os.environ.get("SWIFTLET_HOME", HERE.parent))
@@ -321,6 +323,9 @@ def main():
     st_path = PROJECT / "data" / f"state_{args.camera_id}.json"
 
     pub = build_publisher(args.house_id, args.camera_id)
+    snapshot_storage = SnapshotStorage.from_environment()
+    if snapshot_storage is None:
+        print("[S3] Chua cau hinh S3_* -> alert van gui, snapshotKey se la null")
     Path(args.snapshot_dir).mkdir(parents=True, exist_ok=True)
     (PROJECT / "data").mkdir(exist_ok=True)
     ev_file = open(PROJECT / "data" / "events_last.csv", "w", newline="", encoding="utf-8")
@@ -340,6 +345,7 @@ def main():
     last_hb, fps, t_prev = 0.0, 0.0, time.time()
     t_start = time.time()
     frame_size = None
+    active_date = operating_date()
     # thong ke de chan doan khi dem ra 0
     n_det, frames_with_bird, track_ids = 0, 0, set()
     # thanh nut bam bang chuot o day cua so
@@ -378,7 +384,7 @@ def main():
             if counter is None:
                 initial, c_in, c_out = (0, 0, 0)
                 if use_state:
-                    initial, c_in, c_out = resolve(read_state(st_path), str(date.today()), args.initial_count)
+                    initial, c_in, c_out = resolve(read_state(st_path), active_date, args.initial_count)
                 elif args.initial_count is not None:
                     initial = args.initial_count
                 counter = VirtualLineCounter(p1, p2, in_side=line_cfg["in_side"], buffer_px=args.buffer,
@@ -388,6 +394,16 @@ def main():
             elif frame_size != (w, h):
                 counter.set_line(p1, p2)
             frame_size = (w, h)
+
+            # The process can run through midnight: reset daily counters without
+            # changing the number currently in the house.
+            today = operating_date()
+            if use_state and today != active_date:
+                counter.initial_count = counter.current
+                counter.reset()
+                active_date = today
+                write_state(st_path, counter, active_date)
+                print(f"[STATE] Sang ngay {active_date}: reset IN/OUT, giu current={counter.current}")
 
             t_loop0 = time.perf_counter()
             res = model.track(raw, **track_kw)[0]
@@ -428,18 +444,19 @@ def main():
                     if c in swiftlet_ids and tid is not None:
                         event = counter.update(tid, ((x1 + x2) / 2, (y1 + y2) / 2), frame_no)
                         if event:
+                            event_id = str(uuid4())
                             vt = round(frame_no / src_fps, 2) if src_fps else ""
                             ev_csv.writerow([frame_no, vt, event, tid, counter.in_count,
                                              counter.out_count, counter.current])
                             ev_file.flush()
                             if use_state:
-                                write_state(st_path, counter)
+                                write_state(st_path, counter, active_date)
                             print(f"[{event}] id={tid} t={vt}s  IN={counter.in_count} "
                                   f"OUT={counter.out_count} CON LAI={counter.current}")
                             pub.publish("count", {
-                                "event": event, "trackId": tid, "in": counter.in_count,
+                                "eventId": event_id, "event": event, "trackId": tid, "in": counter.in_count,
                                 "out": counter.out_count, "current": counter.current,
-                                "ts": datetime.now().astimezone().isoformat()})
+                                "ts": datetime.now(VIETNAM_TZ).isoformat()})
             frames_with_bird += 1 if birds_now else 0
             counter.prune(frame_no)
 
@@ -447,12 +464,23 @@ def main():
             now = time.time()
             for al in pflt.update(pred_dets, tnow):
                 real = orig_name.get(al["class"], al["class"])
-                snap = Path(args.snapshot_dir) / f"{al['class']}_{datetime.now():%Y%m%d_%H%M%S}.jpg"
+                snap = Path(args.snapshot_dir) / f"{al['class']}_{datetime.now(VIETNAM_TZ):%Y%m%d_%H%M%S}.jpg"
                 cv2.imwrite(str(snap), frame)
+                event_id = str(uuid4())
                 print(f"[CANH BAO] Phat hien {real} ({al['confidence']:.0%}) -> {snap.name}")
                 pub.publish("alert", {
-                    "type": "predator", "class": real, "confidence": round(al["confidence"], 3),
-                    "snapshot": str(snap), "ts": datetime.now().astimezone().isoformat()})
+                    "eventId": event_id, "type": "predator", "class": real,
+                    "confidence": round(al["confidence"], 3), "snapshotKey": None,
+                    "ts": datetime.now(VIETNAM_TZ).isoformat()})
+                if snapshot_storage:
+                    def image_uploaded(key, eid=event_id):
+                        pub.publish("alert-image", {"eventId": eid, "snapshotKey": key,
+                                                    "ts": datetime.now(VIETNAM_TZ).isoformat()})
+
+                    def image_failed(exc, eid=event_id):
+                        print(f"[S3] Upload alert {eid} loi, giu anh local de retry: {exc}")
+
+                    snapshot_storage.submit(snap, args.camera_id, event_id, image_uploaded, image_failed)
 
             # ---- ve vach + HUD
             ip1 = (int(counter.p1[0]), int(counter.p1[1]))
@@ -483,7 +511,7 @@ def main():
                 last_hb = now
                 pub.publish("heartbeat", {"fps": round(fps, 1), "in": counter.in_count,
                                           "out": counter.out_count, "current": counter.current,
-                                          "ts": datetime.now().astimezone().isoformat()}, qos=0)
+                                          "ts": datetime.now(VIETNAM_TZ).isoformat()}, qos=0)
 
             if not args.headless:
                 s = fit_scale(w, h)
@@ -519,7 +547,7 @@ def main():
                     counter.initial_count = counter.current      # giu tong con lai, chi xoa IN/OUT
                     counter.reset()
                     if use_state:
-                        write_state(st_path, counter)
+                        write_state(st_path, counter, active_date)
                     print(f"Da dat lai IN/OUT. Tong con lai giu nguyen = {counter.current}")
                 if action == "line":                              # ve lai vach NGAY TRONG LUC CHAY
                     cfg = edit_line(raw, init=line_cfg)
@@ -546,7 +574,7 @@ def main():
         det_file.close()
         if counter:
             if use_state:
-                write_state(st_path, counter)
+                write_state(st_path, counter, active_date)
             n = max(n_proc, 1)
             perf = {"ms_preprocess": round(acc["preprocess"] / n, 2),
                     "ms_inference": round(acc["inference"] / n, 2),
@@ -573,6 +601,8 @@ def main():
                 print("-> Co thay chim nhung khong con nao cat vach: kiem tra vach co nam tren duong bay khong"
                       " (bam VE LAI VACH).")
         pub.close()
+        if snapshot_storage:
+            snapshot_storage.close()
         if not args.headless:
             try:
                 cv2.destroyAllWindows()

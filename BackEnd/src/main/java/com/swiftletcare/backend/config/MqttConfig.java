@@ -24,6 +24,9 @@ public class MqttConfig {
     @Value("${mqtt.topic.telemetry}")
     private String telemetryTopic;
 
+    @Value("${mqtt.topic.bird-tracking}")
+    private String birdTrackingTopic;
+
     @Bean
     public MqttPahoClientFactory mqttClientFactory() {
         DefaultMqttPahoClientFactory factory = new DefaultMqttPahoClientFactory();
@@ -48,6 +51,23 @@ public class MqttConfig {
         adapter.setConverter(new DefaultPahoMessageConverter());
         adapter.setQos(1);
         adapter.setOutputChannel(telemetryInboundChannel());
+        return adapter;
+    }
+
+    @Bean
+    public MessageChannel birdTrackingInboundChannel() {
+        return new DirectChannel();
+    }
+
+    @Bean
+    public MessageProducer birdTrackingInbound() {
+        MqttPahoMessageDrivenChannelAdapter adapter =
+                new MqttPahoMessageDrivenChannelAdapter(clientId + "_bird_tracking_inbound",
+                        mqttClientFactory(), birdTrackingTopic);
+        adapter.setCompletionTimeout(5000);
+        adapter.setConverter(new DefaultPahoMessageConverter());
+        adapter.setQos(1);
+        adapter.setOutputChannel(birdTrackingInboundChannel());
         return adapter;
     }
 }

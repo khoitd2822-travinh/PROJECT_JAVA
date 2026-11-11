@@ -22,14 +22,15 @@ a = p.parse_args()
 r = json.loads(Path(a.run).read_text())
 
 
-def acc(gt, pred):
+def count_agreement(gt, pred):
+    """Count agreement, not detector precision/recall or model mAP."""
     return max(0.0, 1 - abs(pred - gt) / gt) if gt else float("nan")
 
 
 print(f"\n== {a.name} ==")
 for n, gt, pr in (("IN", a.gt_in, r["in"]), ("OUT", a.gt_out, r["out"]),
                   ("TONG", a.gt_in + a.gt_out, r["in"] + r["out"])):
-    print(f"{n:5} dem tay={gt:4}  AI={pr:4}  sai lech={pr - gt:+4}  chinh xac={acc(gt, pr):.1%}")
+    print(f"{n:5} dem tay={gt:4}  AI={pr:4}  sai lech={pr - gt:+4}  do khop dem={count_agreement(gt, pr):.1%}")
 print(f"Chenh lech rong IN-OUT: dem tay={a.gt_in - a.gt_out:+}, AI={r['in'] - r['out']:+}  |  FPS TB={r.get('avg_fps')}")
 
 csv_path = Path(a.csv)
@@ -46,4 +47,4 @@ pi = sum(int(x["ai_in"]) for x in rows); po = sum(int(x["ai_out"]) for x in rows
 abs_err = sum(abs(int(x["ai_in"]) - int(x["gt_in"])) + abs(int(x["ai_out"]) - int(x["gt_out"])) for x in rows)
 print(f"\nTONG HOP {len(rows)} video: dem tay={gi + go} luot, AI={pi + po} luot, "
       f"sai so tuyet doi={abs_err} luot ({abs_err / (gi + go):.1%}), "
-      f"IN chinh xac={acc(gi, pi):.1%}, OUT chinh xac={acc(go, po):.1%}")
+      f"do khop IN={count_agreement(gi, pi):.1%}, OUT={count_agreement(go, po):.1%}")
