@@ -9,11 +9,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class UserDetailsImpl implements UserDetails {
-    private Long id;
-    private String fullName;
-    private String email;
-    private String password;
-    private Collection<? extends GrantedAuthority> authorities;
+    private final Long id;
+    private final String fullName;
+    private final String email;
+    private final String password;
+    private final Collection<? extends GrantedAuthority> authorities;
 
     public UserDetailsImpl(Long id, String fullName, String email, String password, Collection<? extends GrantedAuthority> authorities) {
         this.id = id;

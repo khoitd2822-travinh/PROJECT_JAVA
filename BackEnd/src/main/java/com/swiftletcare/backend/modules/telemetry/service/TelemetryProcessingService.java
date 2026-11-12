@@ -1,5 +1,6 @@
 package com.swiftletcare.backend.modules.telemetry.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swiftletcare.backend.modules.notification.service.WebSocketBroadcaster;
 import com.swiftletcare.backend.modules.telemetry.dto.TelemetryPayloadDTO;
@@ -8,11 +9,8 @@ import com.swiftletcare.backend.modules.telemetry.entity.SensorTelemetryId;
 import com.swiftletcare.backend.modules.telemetry.repository.TelemetryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
-
-
 import java.time.Duration;
 import java.time.Instant;
 
@@ -40,8 +38,10 @@ public class TelemetryProcessingService {
             TelemetryPayloadDTO dto = objectMapper.readValue(payload, TelemetryPayloadDTO.class);
 
             String deviceId = (dto.getDeviceId() != null) ? dto.getDeviceId() : "ESP32_ZONE_1";
-            Long farmId = (dto.getFarmId() != null) ? dto.getFarmId() : 1L;
-            Long zoneId = (dto.getZoneId() != null) ? dto.getZoneId() : 1L;
+            Long farmId = dto.getFarmId();
+            if (farmId == null) farmId = 1L;
+            Long zoneId = dto.getZoneId();
+            if (zoneId == null) zoneId = 1L;
 
             Instant now = Instant.now();
 
@@ -54,7 +54,9 @@ public class TelemetryProcessingService {
             telemetry.setHumidity(dto.getHumidity());
             telemetry.setCo2Level(dto.getCo2());
             telemetry.setLightLevel(dto.getLight());
-            telemetry.setSoundDb(dto.getSound() != null ? dto.getSound() : 65.0);
+            Double soundDb = dto.getSound();
+            if (soundDb == null) soundDb = 65.0;
+            telemetry.setSoundDb(soundDb);
             telemetry.setFanState(dto.getFan() != null && dto.getFan() == 1);
             telemetry.setMistState(dto.getMist() != null && dto.getMist() == 1);
             telemetry.setHeaterState(dto.getHeat() != null && dto.getHeat() == 1);
@@ -69,8 +71,8 @@ public class TelemetryProcessingService {
 
             log.info("Lưu thành công Telemetry từ Topic [{}]: Temp={}°C, Hum={}%", topic, dto.getTemperature(), dto.getHumidity());
 
-        } catch (Exception e) {
-            log.error("Lỗi khi giải mã và lưu gói tin Telemetry: {}", e.getMessage());
+        } catch (JsonProcessingException | RuntimeException exception) {
+            log.error("Lỗi khi giải mã và lưu gói tin Telemetry", exception);
         }
     }
 }

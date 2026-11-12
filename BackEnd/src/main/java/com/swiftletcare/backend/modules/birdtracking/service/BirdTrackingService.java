@@ -2,13 +2,16 @@ package com.swiftletcare.backend.modules.birdtracking.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.swiftletcare.backend.modules.birdtracking.entity.BirdTrackingLog;
 import com.swiftletcare.backend.modules.birdtracking.entity.BirdTrackingCameraState;
 import com.swiftletcare.backend.modules.birdtracking.repository.BirdTrackingCameraStateRepository;
 import com.swiftletcare.backend.modules.birdtracking.repository.BirdTrackingRepository;
 import com.swiftletcare.backend.modules.notification.service.WebSocketBroadcaster;
-import com.swiftletcare.backend.modules.notification.service.ZaloNotificationService;
+import com.swiftletcare.backend.modules.notification.service.TelegramNotificationService;
 import com.swiftletcare.backend.modules.storage.service.MinioStorageService;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -16,9 +19,11 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 
 /** Receives the contract emitted by the edge AI. eventId is the idempotency key. */
 @Service
@@ -28,20 +33,24 @@ public class BirdTrackingService {
     private final ObjectMapper objectMapper;
     private final BirdTrackingCameraStateRepository stateRepository;
     private final WebSocketBroadcaster broadcaster;
-    private final ZaloNotificationService zalo;
+    private final TelegramNotificationService telegram;
     private final MinioStorageService storageService;
+    private final TaskExecutor notificationExecutor;
     private final ConcurrentHashMap<String, String> pendingImages = new ConcurrentHashMap<>();
+    private final Set<String> telegramInFlight = ConcurrentHashMap.newKeySet();
 
     public BirdTrackingService(BirdTrackingRepository repository, ObjectMapper objectMapper,
                                BirdTrackingCameraStateRepository stateRepository,
-                               WebSocketBroadcaster broadcaster, ZaloNotificationService zalo,
-                               MinioStorageService storageService) {
+                               WebSocketBroadcaster broadcaster, TelegramNotificationService telegram,
+                               MinioStorageService storageService,
+                               @Qualifier("notificationTaskExecutor") TaskExecutor notificationExecutor) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.stateRepository = stateRepository;
         this.broadcaster = broadcaster;
-        this.zalo = zalo;
+        this.telegram = telegram;
         this.storageService = storageService;
+        this.notificationExecutor = notificationExecutor;
     }
 
     public void process(String topic, String payload) {
@@ -60,8 +69,8 @@ public class BirdTrackingService {
                 case "status" -> updateStatus(parts[1], parts[2], body);
                 default -> log.warn("Ignoring unsupported bird tracking message type {}", parts[3]);
             }
-        } catch (Exception e) {
-            log.error("Cannot process bird tracking MQTT message on {}: {}", topic, e.getMessage());
+        } catch (JsonProcessingException | RuntimeException exception) {
+            log.error("Cannot process bird tracking MQTT message on {}", topic, exception);
         }
     }
 
@@ -69,7 +78,7 @@ public class BirdTrackingService {
         String eventId = requiredEventId(body);
         if (repository.findByEventId(eventId).isPresent()) return;
         int current = requiredInt(body, "current");
-        BirdTrackingLog logEntry = base(houseId, cameraId, eventId, body);
+        BirdTrackingLog logEntry = base(cameraId, eventId, body);
         logEntry.setTrackId(body.path("trackId").isLong() ? body.path("trackId").asLong() : null);
         logEntry.setInCount(requiredInt(body, "in"));
         logEntry.setOutCount(requiredInt(body, "out"));
@@ -86,7 +95,7 @@ public class BirdTrackingService {
     private void saveAlert(String houseId, String cameraId, JsonNode body) {
         String eventId = requiredEventId(body);
         if (repository.findByEventId(eventId).isPresent()) return;
-        BirdTrackingLog logEntry = base(houseId, cameraId, eventId, body);
+        BirdTrackingLog logEntry = base(cameraId, eventId, body);
         logEntry.setEventType("THREAT_ALERT");
         logEntry.setDescription(body.path("class").asText("unknown") + " confidence=" + body.path("confidence").asText(""));
         String payloadKey = body.path("snapshotKey").isNull() ? null : body.path("snapshotKey").asText(null);
@@ -94,7 +103,7 @@ public class BirdTrackingService {
         if (saveIdempotently(logEntry)) {
             broadcaster.broadcastAlert(logEntry);
             broadcaster.broadcastBirdTracking(houseId, cameraId, Map.of("type", "alert", "data", logEntry));
-            notifyZaloIfReady(logEntry);
+            notifyTelegramIfReady(logEntry);
         }
     }
 
@@ -105,7 +114,7 @@ public class BirdTrackingService {
         repository.findByEventId(eventId).ifPresentOrElse(event -> {
             event.setSnapshotKey(snapshotKey);
             repository.save(event);
-            notifyZaloIfReady(event);
+            notifyTelegramIfReady(event);
             broadcaster.broadcastBirdTracking(houseFor(event.getCameraId()), event.getCameraId(),
                     Map.of("type", "alert-image", "data", event));
         }, () -> {
@@ -116,7 +125,7 @@ public class BirdTrackingService {
         });
     }
 
-    private BirdTrackingLog base(String houseId, String cameraId, String eventId, JsonNode body) {
+    private BirdTrackingLog base(String cameraId, String eventId, JsonNode body) {
         // Until a camera registry is introduced, the existing defaults remain explicit.
         Long farmId = body.path("farmId").asLong(1L);
         Long zoneId = body.path("zoneId").asLong(1L);
@@ -161,28 +170,84 @@ public class BirdTrackingService {
     }
 
     private String houseFor(String cameraId) {
-        return stateRepository.findByCameraId(cameraId).map(BirdTrackingCameraState::getHouseId).orElse("unknown");
+        BirdTrackingCameraState state = stateRepository.findByCameraId(cameraId).orElse(null);
+        return state == null || state.getHouseId() == null ? "unknown" : state.getHouseId();
     }
 
-    /** One alert has at most three delivery attempts and at most one successful Zalo send. */
-    private synchronized void notifyZaloIfReady(BirdTrackingLog event) {
-        if (!"THREAT_ALERT".equals(event.getEventType()) || event.isZaloNotified()
-                || event.getZaloAttempts() >= 3 || event.getSnapshotKey() == null) {
+    /** One alert has at most three delivery attempts and at most one successful Telegram send. */
+    private void notifyTelegramIfReady(BirdTrackingLog event) {
+        if (!"THREAT_ALERT".equals(event.getEventType()) || event.isTelegramNotified()
+                || event.getTelegramAttempts() >= 3 || event.getSnapshotKey() == null) {
             return;
         }
-        String imageUrl = storageService.getPresignedImageUrl(event.getSnapshotKey());
-        if (imageUrl == null) {
-            event.setZaloLastResult("S3 presigned URL unavailable");
+        String eventId = event.getEventId();
+        if (!telegramInFlight.add(eventId)) return;
+        try {
+            notificationExecutor.execute(() -> sendTelegramAlert(eventId));
+        } catch (RuntimeException exception) {
+            telegramInFlight.remove(eventId);
+            event.setTelegramLastResult("Notification queue unavailable");
             repository.save(event);
-            log.warn("Cannot notify Zalo for {}: presigned URL unavailable", event.getEventId());
-            return;
+            log.error("Could not queue Telegram delivery for eventId={}: {}",
+                    eventId, exception.getClass().getSimpleName());
         }
-        event.setZaloAttempts(event.getZaloAttempts() + 1);
-        boolean sent = zalo.sendAlertWithImage(event.getDescription(), imageUrl);
-        event.setZaloNotified(sent);
-        event.setZaloLastResult(sent ? "accepted by Zalo" : "Zalo rejected or request failed");
-        repository.save(event);
-        if (!sent) log.warn("Zalo delivery failed for eventId={} (attempt {})", event.getEventId(), event.getZaloAttempts());
+    }
+
+    private void sendTelegramAlert(String eventId) {
+        try {
+            BirdTrackingLog event = repository.findByEventId(eventId).orElse(null);
+            if (event == null || !"THREAT_ALERT".equals(event.getEventType())
+                    || event.isTelegramNotified() || event.getTelegramAttempts() >= 3
+                    || event.getSnapshotKey() == null) return;
+
+            event.setTelegramAttempts(event.getTelegramAttempts() + 1);
+            event.setTelegramLastResult("Sending");
+            repository.save(event);
+
+            String imageUrl = storageService.getPresignedImageUrl(event.getSnapshotKey());
+            if (imageUrl == null) {
+                event.setTelegramLastResult("S3 presigned URL unavailable");
+                repository.save(event);
+                log.warn("Cannot notify Telegram for eventId={} (attempt {})",
+                        eventId, event.getTelegramAttempts());
+                return;
+            }
+
+            if (!event.isTelegramTextNotified()) {
+                if (!telegram.sendText(event.getDescription())) {
+                    event.setTelegramLastResult("Telegram rejected alert text");
+                    repository.save(event);
+                    log.warn("Telegram text delivery failed for eventId={} (attempt {})",
+                            eventId, event.getTelegramAttempts());
+                    return;
+                }
+                event.setTelegramTextNotified(true);
+                repository.save(event);
+            }
+
+            boolean imageSent = telegram.sendImage(imageUrl);
+            event.setTelegramNotified(imageSent);
+            event.setTelegramLastResult(imageSent ? "text and image accepted by Telegram"
+                    : "text accepted; Telegram rejected image");
+            repository.save(event);
+            if (!imageSent) log.warn("Telegram image delivery failed for eventId={} (attempt {})",
+                    eventId, event.getTelegramAttempts());
+        } catch (RuntimeException exception) {
+            log.error("Telegram delivery processing failed for eventId={}: {}",
+                    eventId, exception.getClass().getSimpleName());
+            try {
+                repository.findByEventId(eventId).ifPresent(event -> {
+                    event.setTelegramNotified(false);
+                    event.setTelegramLastResult("Delivery processing failed");
+                    repository.save(event);
+                });
+            } catch (RuntimeException persistenceException) {
+                log.error("Could not save Telegram failure result for eventId={}: {}",
+                        eventId, persistenceException.getClass().getSimpleName());
+            }
+        } finally {
+            telegramInFlight.remove(eventId);
+        }
     }
 
     private static int requiredInt(JsonNode body, String field) {
@@ -200,6 +265,6 @@ public class BirdTrackingService {
     private static LocalDateTime parseTimestamp(String value) {
         if (value == null || value.isBlank()) return LocalDateTime.now();
         try { return OffsetDateTime.parse(value).toLocalDateTime(); }
-        catch (Exception ignored) { return LocalDateTime.now(); }
+        catch (DateTimeParseException ignored) { return LocalDateTime.now(); }
     }
 }

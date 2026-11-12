@@ -28,10 +28,11 @@ public class BirdTrackingLog {
     private Integer outCount;
     private Integer currentCount;
     private String snapshotKey;
-    private boolean zaloNotified;
-    private int zaloAttempts;
+    private boolean telegramTextNotified;
+    private boolean telegramNotified;
+    private int telegramAttempts;
     @Column(length = 500)
-    private String zaloLastResult;
+    private String telegramLastResult;
 
     private int birdCount;      // Số lượng chim đếm được qua AI camera
     private String eventType;   // "INFO_COUNT" hoặc "THREAT_ALERT"

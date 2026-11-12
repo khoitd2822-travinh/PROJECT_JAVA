@@ -63,8 +63,10 @@ public class BirdTrackingController {
         return BirdTrackingDTO.builder().id(log.getId()).farmId(log.getFarmId()).zoneId(log.getZoneId())
                 .eventId(log.getEventId()).cameraId(log.getCameraId()).trackId(log.getTrackId())
                 .inCount(log.getInCount()).outCount(log.getOutCount()).currentCount(log.getCurrentCount())
-                .snapshotKey(log.getSnapshotKey()).birdCount(log.getBirdCount()).eventType(log.getEventType())
-                .zaloNotified(log.isZaloNotified()).zaloAttempts(log.getZaloAttempts()).zaloLastResult(log.getZaloLastResult())
+                .snapshotKey(log.getSnapshotKey()).telegramTextNotified(log.isTelegramTextNotified())
+                .birdCount(log.getBirdCount()).eventType(log.getEventType())
+                .telegramNotified(log.isTelegramNotified()).telegramAttempts(log.getTelegramAttempts())
+                .telegramLastResult(log.getTelegramLastResult())
                 .description(log.getDescription()).timestamp(log.getTimestamp()).build();
     }
 }
