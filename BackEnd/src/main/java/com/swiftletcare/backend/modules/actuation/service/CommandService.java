@@ -128,6 +128,14 @@ public class CommandService {
                     stored.setStatus(CommandStatus.PUBLISH_FAILED);
                     stored.setCompletedAt(Instant.now());
                     stored.setMessage("BE không xác nhận được publish thành công");
+
+                    // Bổ sung cập nhật database thiết bị để lưu trạng thái PUBLISH_FAILED bền vững
+                    devices.findById(stored.getDeviceId()).ifPresent(d -> {
+                        d.setLastAckStatus("PUBLISH_FAILED");
+                        d.setLastMessage("Không thể publish lệnh qua MQTT broker");
+                        devices.save(d);
+                        messagingTemplate.convertAndSend("/topic/device-status", d);
+                    });
                 }
             });
         }

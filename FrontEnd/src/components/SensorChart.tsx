@@ -1,6 +1,7 @@
+// src/components/SensorChart.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   LineChart,
   Line,
@@ -11,63 +12,15 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { telemetryApi } from "../lib/api";
+import { TelemetryPoint } from "../types/telemetry";
 
-type SensorPoint = {
-  time: string;
-  temperature: number;
-  humidity: number;
-  co2: number;
-  sound: number;
+type SensorChartProps = {
+  data: TelemetryPoint[];
+  isLoading: boolean;
+  errorMessage: string | null;
 };
 
-const fallback: SensorPoint[] = [
-  { time: "00:00", temperature: 27.5, humidity: 85, co2: 500, sound: 65 },
-  { time: "04:00", temperature: 26.8, humidity: 88, co2: 480, sound: 40 },
-  { time: "08:00", temperature: 28.0, humidity: 82, co2: 550, sound: 85 },
-  { time: "12:00", temperature: 31.2, humidity: 75, co2: 620, sound: 90 },
-  { time: "16:00", temperature: 30.0, humidity: 78, co2: 590, sound: 85 },
-  { time: "20:00", temperature: 28.2, humidity: 83, co2: 520, sound: 70 },
-];
-
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-}
-
-export default function SensorChart() {
-  const [data, setData] = useState<SensorPoint[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const result = await telemetryApi.history(1, 1, "24h");
-        const raw = Array.isArray(result?.data) ? result.data : [];
-        const points: SensorPoint[] = raw.map((row: Record<string, number | string>) => ({
-          time: formatTime(String(row.time ?? "")),
-          temperature: Number(row.temperature ?? 0),
-          humidity: Number(row.humidity ?? 0),
-          co2: Number(row.co2 ?? 0),
-          sound: Number(row.sound ?? 0),
-        }));
-        if (!cancelled) setData(points);
-      } catch (error) {
-        console.warn("Chưa lấy được lịch sử cảm biến, dùng dữ liệu mẫu:", error);
-        if (!cancelled) setData(fallback);
-      }
-    }
-
-    load();
-    const interval = setInterval(load, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
+export default function SensorChart({ data, isLoading, errorMessage }: SensorChartProps) {
   return (
     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <div style={{ marginBottom: "16px" }}>
@@ -75,23 +28,59 @@ export default function SensorChart() {
           Biểu đồ lịch sử vi khí hậu và âm thanh (24h)
         </h3>
         <p style={{ fontSize: "13px", color: "#64748b" }}>
-          Theo dõi nhiệt độ, độ ẩm, CO2 và âm thanh
+          Theo dõi nhiệt độ, độ ẩm, CO2, âm thanh và ánh sáng với trục thang đo tối ưu
         </p>
       </div>
 
-      <ResponsiveContainer width="100%" height={340}>
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="time" stroke="#64748b" />
-          <YAxis stroke="#64748b" />
-          <Tooltip contentStyle={{ backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #cbd5e1" }} />
-          <Legend />
-<Line type="monotone" dataKey="temperature" name="Nhiệt độ (°C)" stroke="#ef4444" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="humidity" name="Độ ẩm (%)" stroke="#3b82f6" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="co2" name="Khí CO2 (ppm)" stroke="#10b981" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="sound" name="Âm thanh (dB)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
-        </LineChart>
-      </ResponsiveContainer>
+      {errorMessage && (
+        <div style={{ marginBottom: "16px", padding: "10px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "13px" }}>
+          ⚠️ {errorMessage}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div style={{ height: 340, display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: "14px" }}>
+          Đang tải dữ liệu biểu đồ...
+        </div>
+      ) : data.length === 0 ? (
+        <div style={{ height: 340, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f8fafc", border: "2px dashed #e2e8f0", borderRadius: "8px", padding: "20px", textAlign: "center" }}>
+          <span style={{ fontSize: "28px", marginBottom: "8px" }}>📊</span>
+          <p style={{ fontWeight: "500", color: "#334155", fontSize: "14px" }}>Chưa có dữ liệu lịch sử hiển thị</p>
+          <p style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>Biểu đồ sẽ tự động vẽ khi hệ thống nhận được bản tin telemetry.</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={340}>
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="time" stroke="#64748b" />
+            <YAxis yAxisId="left" stroke="#64748b" domain={["auto", "auto"]} />
+            <YAxis yAxisId="right" orientation="right" stroke="#10b981" domain={["auto", "auto"]} />
+            
+            <Tooltip contentStyle={{ backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #cbd5e1" }} />
+            <Legend />
+            
+            <Line yAxisId="left" type="monotone" dataKey="temperature" name="Nhiệt độ (°C)" stroke="#ef4444" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="left" type="monotone" dataKey="humidity" name="Độ ẩm (%)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="right" type="monotone" dataKey="co2" name="Khí CO2 (ppm)" stroke="#10b981" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="left" type="monotone" dataKey="light" name="Ánh sáng (Lux)" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", marginTop: "16px", paddingTop: "12px", borderTop: "1px solid #e2e8f0", fontSize: "12px", color: "#475569", justifyContent: "center" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#ef4444", display: "inline-block", borderRadius: "2px" }}></span> Nhiệt độ (°C)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#3b82f6", display: "inline-block", borderRadius: "2px" }}></span> Độ ẩm (%)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#10b981", display: "inline-block", borderRadius: "2px" }}></span> Khí CO₂ (ppm)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#f59e0b", display: "inline-block", borderRadius: "2px" }}></span> Ánh sáng (Lux)
+        </span>
+      </div>
     </div>
   );
 }
