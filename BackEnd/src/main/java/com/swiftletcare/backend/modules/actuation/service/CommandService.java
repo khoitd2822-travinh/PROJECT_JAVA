@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -36,11 +37,13 @@ public class CommandService {
     private final ActuationService publisher;
     private final TransactionTemplate transaction;
     private final long timeoutSeconds;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public CommandService(DeviceRepository devices, ActuationCommandRepository commands, ActuationService publisher, PlatformTransactionManager transactionManager, @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds) {
+    public CommandService(DeviceRepository devices, ActuationCommandRepository commands, ActuationService publisher, SimpMessagingTemplate messagingTemplate, PlatformTransactionManager transactionManager, @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds) {
         this.devices = devices;
         this.commands = commands;
         this.publisher = publisher;
+        this.messagingTemplate = messagingTemplate;
         this.transaction = new TransactionTemplate(transactionManager);
         if (timeoutSeconds < 5 || timeoutSeconds > 300) {
             throw new IllegalArgumentException("ACK timeout phải từ 5 đến 300 giây");
@@ -107,6 +110,14 @@ public class CommandService {
 
         Objects.requireNonNull(command);
 
+        // Bổ sung đoạn này để báo frontend thiết bị đang chờ ACK
+        devices.findById(command.getDeviceId()).ifPresent(d -> {
+            d.setLastAckStatus("PENDING");
+            d.setLastMessage("Đang chờ ACK từ thiết bị...");
+            devices.save(d);
+            messagingTemplate.convertAndSend("/topic/device-status", d);
+        });
+
         if (!publisher.publishCommand(command)) {
             transaction.executeWithoutResult(tx -> {
                 ActuationCommand stored = commands
@@ -163,11 +174,19 @@ public class CommandService {
                 log.warn("ACK sai board/target: {}", command.getId());
                 return;
             }
+                Device device = devices.findForUpdate(command.getDeviceId())
+                    .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Thiết bị không còn tồn tại"));
 
             if (!ack.success()) {
                 command.setStatus(CommandStatus.REJECTED);
                 command.setCompletedAt(Instant.now());
                 command.setMessage(shortMessage(ack.message()));
+
+                // Bổ sung cập nhật device và bắn websocket
+                device.setLastAckStatus("FAILED");
+                device.setLastMessage(shortMessage(ack.message()));
+                devices.save(device);
+                messagingTemplate.convertAndSend("/topic/device-status", device);
                 return;
             }
 
@@ -187,18 +206,23 @@ public class CommandService {
                 return;
             }
 
-            Device device = devices.findForUpdate(command.getDeviceId())
-                    .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Thiết bị không còn tồn tại"));
-
             device.setStatus(ack.state() == 1 ? "ON" : "OFF");
             device.setControlMode(ack.mode());
             device.setLastActive(LocalDateTime.now());
+
+            // Bổ sung 3 dòng này để cập nhật trạng thái ACK
+            device.setLastAckStatus("SUCCESS");
+            device.setLastMessage(shortMessage(ack.message()));
+            devices.save(device);
 
             command.setActualState(ack.state());
             command.setMode(ack.mode());
             command.setStatus(CommandStatus.CONFIRMED);
             command.setCompletedAt(Instant.now());
             command.setMessage(shortMessage(ack.message()));
+
+            // Bổ sung dòng này để đẩy real-time xuống UI
+            messagingTemplate.convertAndSend("/topic/device-status", device);
 
             log.info("Confirmed commandId={}", command.getId());
         });
@@ -223,6 +247,13 @@ public class CommandService {
             command.setStatus(CommandStatus.TIMED_OUT);
             command.setCompletedAt(Instant.now());
             command.setMessage("Hết thời gian chờ, chưa xác nhận được kết quả");
+
+            devices.findById(command.getDeviceId()).ifPresent(d -> {
+                d.setLastAckStatus("TIMED_OUT");
+                d.setLastMessage("Hết thời gian chờ phản hồi");
+                devices.save(d);
+                messagingTemplate.convertAndSend("/topic/device-status", d);
+            });
         }
     }
 

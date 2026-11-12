@@ -224,7 +224,7 @@ useEffect(() => {
 
         {activePage === "Dashboard" && (
           <>
-            <div className="welcome"> // hai tang 
+            <div className="welcome">  
               <div>
                 <h2>Welcome back!</h2>
                 <p>Here is your swiftlet house overview.</p>

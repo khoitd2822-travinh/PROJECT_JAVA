@@ -50,9 +50,13 @@ jwt:
 # 7. Zalo OA — để trống vẫn chạy được; chỉ lỗi khi bấm gửi cảnh báo
 zalo:
   oa:
+
     access-token: "${ZALO_OA_ACCESS_TOKEN:}"
     user-id: "${ZALO_OA_USER_ID:}"
 
+   
+    
+# 8. Actuation config
 actuation:
   ack-timeout-seconds: 180
 

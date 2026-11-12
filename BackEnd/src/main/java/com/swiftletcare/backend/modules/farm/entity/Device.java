@@ -32,4 +32,15 @@ public class Device {
     private Long farmId; 
 
     private LocalDateTime lastActive;
+
+    
+    @Column(name = "last_command_time")
+    private LocalDateTime lastCommandTime; // Mốc thời gian gửi lệnh để tính timeout
+
+    // --- Bổ sung để hiển thị kết quả ACK real-time ---
+    @Column(name = "last_ack_status", length = 32)
+    private String lastAckStatus; // SUCCESS, FAILED, PENDING
+
+    @Column(name = "last_message", columnDefinition = "TEXT")
+    private String lastMessage;   // Thông điệp phản hồi từ thiết bị phần cứng
 }
