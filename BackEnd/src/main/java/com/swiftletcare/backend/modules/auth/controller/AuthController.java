@@ -72,4 +72,10 @@ public class AuthController {
 
         return ResponseEntity.ok("Đăng ký tài khoản thành công!");
     }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logoutUser() {
+        SecurityContextHolder.clearContext();
+        return ResponseEntity.ok(java.util.Map.of("message", "Đăng xuất thành công!"));
+    }
 }

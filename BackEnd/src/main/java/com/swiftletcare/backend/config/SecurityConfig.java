@@ -23,8 +23,16 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
     private final UserDetailsServiceImpl userDetailsService;
+    private final AuthEntryPointJwt unauthorizedHandler;
+    private final CustomAccessDeniedHandler accessDeniedHandler;
 
-    public SecurityConfig(UserDetailsServiceImpl userDetailsService) { this.userDetailsService = userDetailsService; }
+    public SecurityConfig(UserDetailsServiceImpl userDetailsService, 
+                          AuthEntryPointJwt unauthorizedHandler, 
+                          CustomAccessDeniedHandler accessDeniedHandler) { 
+        this.userDetailsService = userDetailsService;
+        this.unauthorizedHandler = unauthorizedHandler;
+        this.accessDeniedHandler = accessDeniedHandler;
+    }
 
     @Bean
     public AuthTokenFilter authenticationJwtTokenFilter() { return new AuthTokenFilter(); }
@@ -60,8 +68,12 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/ws-swiftlet/**").permitAll()
-                        .requestMatchers("/api/v1/farm/**").permitAll() // Thêm dòng này để cho phép gọi API Farm mà không cần token khi test
+
+                        .requestMatchers(HttpMethod.GET, "/api/v1/farm/**", "/api/v1/telemetry/**", "/api/v1/sensors/**").hasAnyRole("VIEWER","OPERATOR","ADMIN")
+                        .requestMatchers("/api/v1/devices/control/**", "/api/v1/commands/**").hasAnyRole("OPERATOR", "ADMIN") 
+                        .requestMatchers("/api/v1/admin/**", "/api/v1/users/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
+                        
                 );
         
         http.authenticationProvider(authenticationProvider());
