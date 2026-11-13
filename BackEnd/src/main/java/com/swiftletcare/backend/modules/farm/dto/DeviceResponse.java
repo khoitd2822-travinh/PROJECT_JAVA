@@ -17,4 +17,7 @@ public class DeviceResponse {
     private LocalDateTime lastActive;
 
     private String controlMode;
+    // --- Bổ sung 2 trường này để truyền trạng thái ACK lên giao diện ---
+    private String lastAckStatus; 
+    private String lastMessage;
 }

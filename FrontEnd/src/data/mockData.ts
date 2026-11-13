@@ -30,11 +30,11 @@ export interface AlertItem {
   time: string;
 }
 
-// Dữ liệu danh sách nhà yến & vi khí hậu (Nhiệt độ, Độ ẩm, Khí CO2, Ánh sáng)
+// Chỉ giữ lại DUY NHẤT một nhà yến (đã bỏ tầng 2)
 export const mockHouses: SwiftletHouse[] = [
   {
     id: 'house-01',
-    name: 'Nhà yến Lâm Sơn - Tầng 1',
+    name: 'Nhà yến Lâm Sơn',
     location: 'Lâm Sơn, Ninh Thuận',
     status: 'online',
     temperature: 28.4,
@@ -43,19 +43,6 @@ export const mockHouses: SwiftletHouse[] = [
     light: 120,
     birdsInToday: 1240,
     birdsOutToday: 1190,
-    mistingActive: true,
-  },
-  {
-    id: 'house-02',
-    name: 'Nhà yến Lâm Sơn - Tầng 2',
-    location: 'Lâm Sơn, Ninh Thuận',
-    status: 'online',
-    temperature: 31.8,
-    humidity: 71.0,
-    co2: 820,
-    light: 180,
-    birdsInToday: 850,
-    birdsOutToday: 880,
     mistingActive: true,
   },
 ];
@@ -72,13 +59,6 @@ export const mockDevices: DeviceItem[] = [
 export const mockAlerts: AlertItem[] = [
   {
     id: 'alt-01',
-    type: 'warning',
-    title: 'Độ ẩm xuống thấp',
-    message: 'Độ ẩm tại nhà yến 02 giảm còn 71.0%, dưới mức an toàn (75%).',
-    time: '10:42 AM',
-  },
-  {
-    id: 'alt-02',
     type: 'success',
     title: 'Hệ thống kết nối ổn định',
     message: 'Tất cả cảm biến ESP32 đã gửi dữ liệu telemetry qua MQTT thành công.',

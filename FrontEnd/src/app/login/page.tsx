@@ -10,14 +10,17 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(false);
+  const [remember, setRemember] = useState(true); // Mặc định bật hoặc tắt tùy ý
   const [error, setError] = useState("");
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
     try {
       const data = await authApi.login(email, password);
+      
+      // Sử dụng localStorage thống nhất để không bao giờ bị lỗi mất token ngầm
       localStorage.setItem("token", data.token);
       localStorage.setItem(
         "currentUser",
@@ -28,7 +31,9 @@ export default function LoginPage() {
           roles: data.roles,
         })
       );
-      router.push("/");
+      localStorage.setItem("isAuthenticated", "true");
+
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng nhập thất bại");
     }
@@ -82,11 +87,12 @@ export default function LoginPage() {
               checked={remember}
               onChange={(e) => setRemember(e.target.checked)}
             />
-            <label htmlFor="remember">Ghi nhớ đăng nhập</label>
+            <label htmlFor="remember" style={{ cursor: "pointer", userSelect: "none" }}>Ghi nhớ đăng nhập</label>
           </div>
 
           {error ? <p style={{ color: "#d9534f", margin: 0, fontSize: "14px" }}>{error}</p> : null}
-<button type="submit" style={buttonStyle}>
+          
+          <button type="submit" style={buttonStyle}>
             Đăng nhập
           </button>
         </form>

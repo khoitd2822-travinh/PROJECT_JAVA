@@ -2,6 +2,7 @@ package com.swiftletcare.backend.modules.telemetry.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonAlias; // <--- Import thêm annotation này
 import lombok.Data;
 
 import java.util.Map;
@@ -25,6 +26,9 @@ public class TelemetryPayloadDTO {
     @JsonProperty("light")
     private Integer light;
 
+    // --- BỔ SUNG TRƯỜNG ÂM THANH (Hỗ trợ cả "sound" và "soundDb") ---
+    @JsonAlias({"sound", "soundDb"})
+    private Double sound;
 
     private Integer fan;
     private Integer mist;

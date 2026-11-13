@@ -1,6 +1,7 @@
+// src/components/AnalyticsChart.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   LineChart,
   Line,
@@ -11,89 +12,48 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { telemetryApi } from "../lib/api";
+import { TelemetryPoint } from "../types/telemetry";
 
-type AnalyticsPoint = {
-  time: string;
-  temperature: number;
-  humidity: number;
+type AnalyticsChartProps = {
+  data: TelemetryPoint[];
+  isLoading: boolean;
+  errorMessage: string | null;
 };
 
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-}
-
-export default function AnalyticsChart() {
-  const [data, setData] = useState<AnalyticsPoint[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setIsLoading(true);
-      setErrorMessage(null);
-      try {
-        // Gọi API history từ telemetryApi trong src/lib/api.ts
-        const result = await telemetryApi.history(1, 1, "24h");
-        
-        // Hỗ trợ cả 2 dạng phản hồi: { data: [...] [...] } hoặc [...] trực tiếp
-        const raw = Array.isArray(result?.data) 
-          ? result.data 
-          : (Array.isArray(result) ? result : []);
-
-        const points: AnalyticsPoint[] = raw.map((row: Record<string, number | string>) => ({
-          time: formatTime(String(row.time ?? "")),
-          temperature: Number(row.temperature ?? 0),
-          humidity: Number(row.humidity ?? 0),
-        }));
-
-        if (!cancelled) {
-          setData(points);
-          if (points.length === 0) {
-            setErrorMessage("Chưa có dữ liệu lịch sử từ máy chủ.");
-          }
-        }
-      } catch (error) {
-        console.warn("Lỗi khi tải dữ liệu analytics lịch sử:", error);
-        if (!cancelled) {
-          // TUYỆT ĐỐI KHÔNG DÙNG FALLBACK -> Reset về mảng rỗng để hiển thị No-data state
-          setData([]);
-          setErrorMessage("Không thể kết nối đến Backend để lấy dữ liệu lịch sử.");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+export default function AnalyticsChart({ data, isLoading, errorMessage }: AnalyticsChartProps) {
   return (
     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "600" }}>
-          Biểu đồ biến động nhiệt độ và độ ẩm
+          Biểu đồ phân tích môi trường và vi khí hậu (24h)
         </h3>
         <p style={{ fontSize: "13px", color: "#64748b" }}>Cùng nguồn lịch sử 24 giờ với biểu đồ cảm biến</p>
       </div>
 
-      {/* Thông báo lỗi / mất kết nối chi tiết */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", marginBottom: "16px", fontSize: "12px", color: "#475569" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#f97316", display: "inline-block", borderRadius: "2px" }}></span> Nhiệt độ (°C)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#3b82f6", display: "inline-block", borderRadius: "2px" }}></span> Độ ẩm (%)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#10b981", display: "inline-block", borderRadius: "2px" }}></span> CO₂ (ppm)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#8b5cf6", display: "inline-block", borderRadius: "2px" }}></span> Âm thanh (dB)
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ width: "12px", height: "3px", backgroundColor: "#f59e0b", display: "inline-block", borderRadius: "2px" }}></span> Ánh sáng (Lux)
+        </span>
+      </div>
+
       {errorMessage && (
         <div style={{ marginBottom: "16px", padding: "10px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", color: "#991b1b", fontSize: "13px" }}>
           ⚠️ {errorMessage}
         </div>
       )}
 
-      {/* Trạng thái tải, trống hoặc hiển thị biểu đồ thật */}
       {isLoading ? (
         <div style={{ height: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: "14px" }}>
           Đang tải dữ liệu biểu đồ...
@@ -109,11 +69,16 @@ export default function AnalyticsChart() {
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="time" stroke="#64748b" />
-            <YAxis stroke="#64748b" domain={["auto", "auto"]} />
+            <YAxis yAxisId="left" stroke="#64748b" domain={["auto", "auto"]} />
+            <YAxis yAxisId="right" orientation="right" stroke="#10b981" domain={["auto", "auto"]} />
+            
             <Tooltip contentStyle={{ backgroundColor: "#ffffff", borderRadius: "8px", border: "1px solid #cbd5e1" }} />
             <Legend />
-            <Line type="monotone" dataKey="temperature" name="Nhiệt độ trung bình (°C)" stroke="#16856b" strokeWidth={3} dot />
-            <Line type="monotone" dataKey="humidity" name="Độ ẩm trung bình (%)" stroke="#3984cf" strokeWidth={3} dot />
+            
+            <Line yAxisId="left" type="monotone" dataKey="temperature" name="Nhiệt độ (°C)" stroke="#f97316" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="left" type="monotone" dataKey="humidity" name="Độ ẩm (%)" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="right" type="monotone" dataKey="co2" name="CO₂ (ppm)" stroke="#10b981" strokeWidth={2} dot={false} connectNulls={false} />
+            <Line yAxisId="left" type="monotone" dataKey="light" name="Ánh sáng (Lux)" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
           </LineChart>
         </ResponsiveContainer>
       )}

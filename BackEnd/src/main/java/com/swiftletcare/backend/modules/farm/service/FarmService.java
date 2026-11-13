@@ -49,6 +49,8 @@ public class FarmService {
                 .farmId(device.getFarmId())
                 .lastActive(device.getLastActive())
                 .controlMode(device.getControlMode())
+                .lastAckStatus(device.getLastAckStatus()) // Thêm trạng thái ACK
+                .lastMessage(device.getLastMessage())     // Thêm thông điệp phản hồi
                 .build();
     }
 }
