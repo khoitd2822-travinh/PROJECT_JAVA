@@ -69,8 +69,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/ws-swiftlet/**").permitAll()
 
-                        .requestMatchers(HttpMethod.GET, "/api/v1/farm/**", "/api/v1/telemetry/**", "/api/v1/sensors/**").hasAnyRole("VIEWER","OPERATOR","ADMIN")
-                        .requestMatchers("/api/v1/devices/control/**", "/api/v1/commands/**").hasAnyRole("OPERATOR", "ADMIN") 
+                        .requestMatchers(HttpMethod.GET, "/api/v1/farm/**", "/api/v1/telemetry/**", "/api/v1/sensors/**").hasAnyRole("OWNER","ADMIN")
+                        .requestMatchers("/api/v1/devices/control/**", "/api/v1/commands/**").hasAnyRole("OWNER", "ADMIN") 
                         .requestMatchers("/api/v1/admin/**", "/api/v1/users/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                         
