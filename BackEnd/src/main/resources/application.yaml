@@ -1,3 +1,60 @@
+server:
+  port: 8080
+
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: BackEnd
+
+  # 1. Cấu hình kết nối TimescaleDB (PostgreSQL)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/swiftlet
+    username: swiftlet
+    password: swiftlet123
+    driver-class-name: org.postgresql.Driver
+
+  # 2. Cấu hình JPA / Hibernate
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # 3. Cấu hình Redis Cache
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# 4. Cấu hình MQTT EMQX Broker 
+mqtt:
+  broker-url: tcp://localhost:1883
+  client-id: swiftletcare_backend_consumer
+  topic:
+    telemetry: swiftlet/telemetry/#
+    detection: swiftlet/detection/#
+    bird-tracking: swiftletcare/+/+/#
+
+# 5. Cấu hình S3 Storage (Zenko Cloudserver)
+s3:
+  endpoint: ${S3_ENDPOINT:http://localhost:9000}
+  public-endpoint: ${S3_PUBLIC_ENDPOINT:}
+  access-key: ${S3_ACCESS_KEY:123}
+  secret-key: ${S3_SECRET_KEY:abc}
+  bucket-name: ${S3_BUCKET:swiftlet-alerts}
+
+# 6. JWT — chuỗi secret phải dài ít nhất 32 ký tự
+jwt:
+  secret: "swiftletcare-dev-secret-key-32b!!"
+  expirationMs: 86400000 #//token 24h
+# 7. Telegram Bot — giá trị có thể đặt trong BackEnd/.env hoặc environment
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    chat-id: ${TELEGRAM_CHAT_ID:}
+
+actuation:
+  ack-timeout-seconds: 180
