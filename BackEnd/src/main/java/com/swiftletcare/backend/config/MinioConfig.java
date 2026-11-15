@@ -11,6 +11,9 @@ public class MinioConfig {
     @Value("${s3.endpoint}")
     private String endpoint;
 
+    @Value("${s3.public-endpoint:}")
+    private String publicEndpoint;
+
     @Value("${s3.access-key}")
     private String accessKey;
 
@@ -19,8 +22,17 @@ public class MinioConfig {
 
     @Bean
     public MinioClient minioClient() {
+        return createClient(endpoint);
+    }
+
+    @Bean("publicMinioClient")
+    public MinioClient publicMinioClient() {
+        return createClient(publicEndpoint.isBlank() ? endpoint : publicEndpoint);
+    }
+
+    private MinioClient createClient(String clientEndpoint) {
         return MinioClient.builder()
-                .endpoint(endpoint)
+                .endpoint(clientEndpoint)
                 .credentials(accessKey, secretKey)
                 .build();
     }

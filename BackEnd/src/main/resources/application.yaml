@@ -2,6 +2,8 @@ server:
   port: 8080
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: BackEnd
 
@@ -38,10 +40,11 @@ mqtt:
 
 # 5. Cấu hình S3 Storage (Zenko Cloudserver)
 s3:
-  endpoint: http://localhost:9000
-  access-key: "accessKey1"
-  secret-key: "verySecretKey1"
-  bucket-name: swiftlet-alerts
+  endpoint: ${S3_ENDPOINT:http://localhost:9000}
+  public-endpoint: ${S3_PUBLIC_ENDPOINT:}
+  access-key: ${S3_ACCESS_KEY:123}
+  secret-key: ${S3_SECRET_KEY:abc}
+  bucket-name: ${S3_BUCKET:swiftlet-alerts}
 
 # 6. JWT — chuỗi secret phải dài ít nhất 32 ký tự
 jwt:
@@ -51,6 +54,13 @@ jwt:
 zalo:
   oa:
 
+# 7. Telegram Bot — giá trị có thể đặt trong BackEnd/.env hoặc environment
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    chat-id: ${TELEGRAM_CHAT_ID:}
+
+
     access-token: "${ZALO_OA_ACCESS_TOKEN:}"
     user-id: "${ZALO_OA_USER_ID:}"
 
@@ -59,4 +69,3 @@ zalo:
 # 8. Actuation config
 actuation:
   ack-timeout-seconds: 180
-

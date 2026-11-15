@@ -17,9 +17,10 @@ public class BirdTrackingDTO {
     private Integer outCount;
     private Integer currentCount;
     private String snapshotKey;
-    private boolean zaloNotified;
-    private int zaloAttempts;
-    private String zaloLastResult;
+    private boolean telegramTextNotified;
+    private boolean telegramNotified;
+    private int telegramAttempts;
+    private String telegramLastResult;
     private int birdCount;
     private String eventType;
     private String description;
