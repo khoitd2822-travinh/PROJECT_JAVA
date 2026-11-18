@@ -54,7 +54,8 @@ jwt:
 telegram:
   bot:
     token: ${TELEGRAM_BOT_TOKEN:}
-    chat-id: ${TELEGRAM_CHAT_ID:}
+  webhook-url: ${TELEGRAM_WEBHOOK_URL:}
+  webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
 
 actuation:
   ack-timeout-seconds: 180

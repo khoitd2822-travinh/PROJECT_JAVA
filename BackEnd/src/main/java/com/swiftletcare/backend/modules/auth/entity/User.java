@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -21,6 +22,15 @@ public class User {
     private String fullName;
     private String email;
     private String password;
+
+    @Column(name = "telegram_chat_id", unique = true)
+    private String telegramChatId;
+
+    @Column(name = "telegram_link_code_hash", unique = true)
+    private String telegramLinkCodeHash;
+
+    @Column(name = "telegram_link_code_expires_at")
+    private Instant telegramLinkCodeExpiresAt;
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "user_roles",

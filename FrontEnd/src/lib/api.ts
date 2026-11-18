@@ -36,6 +36,33 @@ export const authApi = {
     }>;
   },
 };
+export const telegramApi = {
+  async linkStatus(): Promise<{ linked: boolean }> {
+    const res = await fetch(`${API_BASE_URL}/notification/telegram/link-status`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Không kiểm tra được trạng thái Telegram");
+    return res.json();
+  },
+  async createLinkCode(): Promise<{ code: string; expiresInSeconds: number }> {
+    const res = await fetch(`${API_BASE_URL}/notification/telegram/link-code`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      const message = await res.text();
+      throw new Error(message || "Không tạo được mã liên kết Telegram");
+    }
+    return res.json();
+  },
+  async unlink(): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/notification/telegram/link`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Không thể ngắt liên kết Telegram");
+  },
+};
 export const houseApi = {
   getHouses: async (): Promise<SwiftletHouse[]> => mockHouses,
 };

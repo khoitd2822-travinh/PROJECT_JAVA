@@ -9,6 +9,7 @@ import { SwiftletHouse } from "../data/mockData";
 import SensorChart from "../components/SensorChart";
 import CameraStream from "../components/CameraStream";
 import AnalyticsChart from "../components/AnalyticsChart";
+import TelegramNotificationSettings from "../components/TelegramNotificationSettings";
 
 const menuItems = [
   { name: "Dashboard", icon: "▦" },
@@ -16,6 +17,7 @@ const menuItems = [
   { name: "Control", icon: "⚙" },
   { name: "Analytics", icon: "▥" },
   { name: "Alerts", icon: "♧" },
+  { name: "Telegram", icon: "✉" },
 ];
 
 const initialDevices = [
@@ -721,11 +723,14 @@ useEffect(() => {
   </>
 )}
 
+{activePage === "Telegram" && <TelegramNotificationSettings />}
+
 {activePage !== "Dashboard" &&
   activePage !== "Monitoring" &&
   activePage !== "Control" &&
   activePage !== "Analytics" &&
-  activePage !== "Alerts" && (
+  activePage !== "Alerts" &&
+  activePage !== "Telegram" && (
     <section className="panel placeholder-panel">
       <h2>{activePage}</h2>
       <p>This page has not been implemented yet.</p>

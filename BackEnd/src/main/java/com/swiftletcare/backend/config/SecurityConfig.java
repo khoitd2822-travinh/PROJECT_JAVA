@@ -59,6 +59,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/telegram/webhook").permitAll()
                         .requestMatchers("/ws-swiftlet/**").permitAll()
                         .anyRequest().authenticated()
                 );
