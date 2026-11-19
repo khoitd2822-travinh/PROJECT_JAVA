@@ -1,16 +1,24 @@
-# Môn Lập trình Java
-Kho lưu trữ các bài tập và dự án môn Lập trình Java.
+# Hướng dẫn kết nối Telegram
 
-## Telegram notifications
+Làm theo các bước dưới đây để nhận cảnh báo SwiftletCare qua Telegram.
 
-Set these backend environment variables (for example in `BackEnd/.env`):
+## Các bước kết nối
 
-- `TELEGRAM_BOT_TOKEN`: token for the Telegram bot.
-- `TELEGRAM_WEBHOOK_URL`: public HTTPS URL ending in `/api/v1/telegram/webhook`.
-- `TELEGRAM_WEBHOOK_SECRET`: a private random value using only letters, digits, `_`, or `-` (1-256 characters).
+1. Đăng nhập vào tài khoản SwiftletCare trên web.
+2. Mở mục **Telegram** ở thanh điều hướng rồi bấm **Tạo mã liên kết**.
+3. Mở đường dẫn bot do quản trị viên cung cấp: `https://t.me/<username_bot>`.
+   Bạn không cần tự tạo bot hoặc cung cấp bot token.
+4. Trong Telegram, bấm **Start** hoặc gửi `/start`.
+5. Gửi cho bot mã vừa tạo trong SwiftletCare.
+6. Khi bot xác nhận liên kết thành công, quay lại web. Nếu trạng thái chưa đổi,
+   bấm **Kiểm tra liên kết**.
 
-On startup, the backend registers the configured webhook with Telegram. The webhook URL must already route to this backend and be reachable over HTTPS; the backend cannot create or publish a public URL for a local server. Keep the bot token and webhook secret private.
+Sau khi kết nối, tài khoản sẽ nhận cảnh báo và hình ảnh tại cuộc trò chuyện với
+bot. Không gửi mã liên kết cho người khác.
 
-After signing in to the web app, users can open **Telegram**, create a one-time code, open the bot, send `/start`, and then send the code. Codes expire after 10 minutes and can only be used once. Linked users receive threat-alert text and images. Users can send `/stop` or unlink Telegram from the web app to stop notifications.
+## Lưu ý
 
-`TELEGRAM_CHAT_ID` is no longer used; recipients are the user accounts linked through the bot.
+- Mỗi mã chỉ sử dụng được một lần và hết hạn sau 10 phút. Nếu mã hết hạn, tạo mã mới.
+- Một tài khoản Telegram chỉ có thể liên kết với một tài khoản SwiftletCare.
+- Để dừng nhận thông báo, gửi `/stop` cho bot hoặc bấm **Ngắt liên kết** trong web.
+- Nếu chưa có đường dẫn bot, hãy xin quản trị viên hệ thống gửi username/link của bot.
