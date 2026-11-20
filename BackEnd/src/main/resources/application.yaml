@@ -50,20 +50,14 @@ s3:
 jwt:
   secret: "swiftletcare-dev-secret-key-32b!!"
   expirationMs: 86400000 #//token 24h
-# 7. Zalo OA — để trống vẫn chạy được; chỉ lỗi khi bấm gửi cảnh báo
-zalo:
-  oa:
+
 
 # 7. Telegram Bot — giá trị có thể đặt trong BackEnd/.env hoặc environment
 telegram:
   bot:
-    token: ${TELEGRAM_BOT_TOKEN:}
-  webhook-url: ${TELEGRAM_WEBHOOK_URL:}
-  webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
-
-
-    access-token: "${ZALO_OA_ACCESS_TOKEN:}"
-    user-id: "${ZALO_OA_USER_ID:}"
+    token: "${TELEGRAM_BOT_TOKEN:}"
+  webhook-url: "${TELEGRAM_WEBHOOK_URL:}"
+  webhook-secret: "${TELEGRAM_WEBHOOK_SECRET:}"
 
    
     

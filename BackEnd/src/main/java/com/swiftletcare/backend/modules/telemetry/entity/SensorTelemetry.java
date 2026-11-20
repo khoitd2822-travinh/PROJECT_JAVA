@@ -41,6 +41,28 @@ public class SensorTelemetry {
     @Column(name = "alarm_state")
     private Boolean alarmState;
 
+    @Column(name = "gas_raw")
+    private Integer gasRaw;
+
+    @Column(name = "fan_smoke_state")
+    private Boolean fanSmokeState;
+
+    public Integer getGasRaw() {
+        return gasRaw;
+    }
+
+    public void setGasRaw(Integer gasRaw) {
+        this.gasRaw = gasRaw;
+    }
+
+    public Boolean getFanSmokeState() {
+        return fanSmokeState;
+    }
+
+    public void setFanSmokeState(Boolean fanSmokeState) {
+        this.fanSmokeState = fanSmokeState;
+    }
+
     public SensorTelemetryId getId() {
         return id;
     }

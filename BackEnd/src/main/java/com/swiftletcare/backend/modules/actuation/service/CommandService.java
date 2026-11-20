@@ -39,7 +39,9 @@ public class CommandService {
     private final long timeoutSeconds;
     private final SimpMessagingTemplate messagingTemplate;
 
-    public CommandService(DeviceRepository devices, ActuationCommandRepository commands, ActuationService publisher, SimpMessagingTemplate messagingTemplate, PlatformTransactionManager transactionManager, @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds) {
+    public CommandService(DeviceRepository devices, ActuationCommandRepository commands, ActuationService publisher,
+            SimpMessagingTemplate messagingTemplate, PlatformTransactionManager transactionManager,
+            @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds) {
         this.devices = devices;
         this.commands = commands;
         this.publisher = publisher;
@@ -105,18 +107,20 @@ public class CommandService {
             created.setCreatedAt(now);
             created.setExpiresAt(now.plus(Duration.ofSeconds(timeoutSeconds)));
             created.setMessage("Đang chờ ACK");
+            device.setLastAckStatus("PENDING");
+            device.setLastMessage("Đang chờ ACK từ thiết bị...");
             return commands.saveAndFlush(created);
         });
 
         Objects.requireNonNull(command);
 
         // Bổ sung đoạn này để báo frontend thiết bị đang chờ ACK
-        devices.findById(command.getDeviceId()).ifPresent(d -> {
-            d.setLastAckStatus("PENDING");
-            d.setLastMessage("Đang chờ ACK từ thiết bị...");
-            devices.save(d);
-            messagingTemplate.convertAndSend("/topic/device-status", d);
-        });
+        // devices.findById(command.getDeviceId()).ifPresent(d -> {
+        // d.setLastAckStatus("PENDING");
+        // d.setLastMessage("Đang chờ ACK từ thiết bị...");
+        // devices.save(d);
+        // messagingTemplate.convertAndSend("/topic/device-status", d);
+        // });
 
         if (!publisher.publishCommand(command)) {
             transaction.executeWithoutResult(tx -> {
@@ -130,7 +134,7 @@ public class CommandService {
                     stored.setMessage("BE không xác nhận được publish thành công");
 
                     // Bổ sung cập nhật database thiết bị để lưu trạng thái PUBLISH_FAILED bền vững
-                    devices.findById(stored.getDeviceId()).ifPresent(d -> {
+                    devices.findForUpdate(stored.getDeviceId()).ifPresent(d -> {
                         d.setLastAckStatus("PUBLISH_FAILED");
                         d.setLastMessage("Không thể publish lệnh qua MQTT broker");
                         devices.save(d);
@@ -178,11 +182,12 @@ public class CommandService {
                 return;
             }
 
-            if (!Objects.equals(command.getBoardId(), ack.boardId()) || !Objects.equals(command.getTarget(), ack.target())) {
-                log.warn("ACK sai board/target: {}", command.getId());
+            if (!Objects.equals(command.getBoardId(), ack.boardId())
+                    || !Objects.equals(command.getTarget(), ack.target())) {
+
                 return;
             }
-                Device device = devices.findForUpdate(command.getDeviceId())
+            Device device = devices.findForUpdate(command.getDeviceId())
                     .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Thiết bị không còn tồn tại"));
 
             if (!ack.success()) {
@@ -238,7 +243,8 @@ public class CommandService {
 
     @Scheduled(fixedDelay = 1000)
     public void expirePendingCommands() {
-        var expired = commands.findTop100ByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(
+        var expired = commands
+                .findTop100ByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(
                         CommandStatus.PENDING,
                         Instant.now());
 
@@ -256,7 +262,7 @@ public class CommandService {
             command.setCompletedAt(Instant.now());
             command.setMessage("Hết thời gian chờ, chưa xác nhận được kết quả");
 
-            devices.findById(command.getDeviceId()).ifPresent(d -> {
+            devices.findForUpdate(command.getDeviceId()).ifPresent(d -> {
                 d.setLastAckStatus("TIMED_OUT");
                 d.setLastMessage("Hết thời gian chờ phản hồi");
                 devices.save(d);

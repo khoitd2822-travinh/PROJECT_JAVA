@@ -15,27 +15,51 @@ export function authHeaders(): HeadersInit {
   };
 }
 
-// Wrapper fetch tự động bắt lỗi 401 Unauthorized (Token hết hạn / Không hợp lệ)
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      ...authHeaders(),
-      ...(options.headers || {}),
-    },
-  });
+async function fetchWithAuth( url: string,options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const source = options.signal;
 
-  if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      // Dọn sạch cả hai nơi lưu trữ khi phiên hết hạn
-      localStorage.clear();
-      sessionStorage.clear();
-      window.location.href = "/login?expired=true";
-    }
-    throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+  if (source?.aborted) {
+    controller.abort();
+  } else {
+    source?.addEventListener("abort", abort, { once: true });
   }
 
-  return res;
+  const timer = setTimeout(abort, 10000);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...authHeaders(),
+        ...(options.headers || {}),
+      },
+    });
+
+    if (res.status === 401) {
+      for (const storage of [localStorage, sessionStorage]) {
+        storage.removeItem("token");
+        storage.removeItem("currentUser");
+        storage.removeItem("isAuthenticated");
+      }
+
+      window.location.href = "/login?expired=true";
+      throw new Error("Phiên đăng nhập đã hết hạn.");
+    }
+
+    const body = await res.text();
+
+    return new Response(body || null, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  } finally {
+    clearTimeout(timer);
+    source?.removeEventListener("abort", abort);
+  }
 }
 
 export const authApi = {
@@ -98,75 +122,131 @@ export const houseApi = {
   getHouses: async (): Promise<SwiftletHouse[]> => mockHouses,
 };
 
-export const farmApi = {
-  async getDevices(farmId = 1, zoneId = 1): Promise<any> {
+export const farmApi = { async getDevices(farmId = 1,zoneId = 1,signal?: AbortSignal): Promise<any> {
     const res = await fetchWithAuth(
-      `${API_BASE_URL}/farm/devices?farmId=${farmId}&zoneId=${zoneId}`
+      `${API_BASE_URL}/farm/devices?farmId=${farmId}&zoneId=${zoneId}`,
+      { cache: "no-store", signal }
     );
-    if (!res.ok) throw new Error("Không tải được thiết bị");
+
+    if (!res.ok) {
+      throw new Error("Không tải được thiết bị: HTTP " + res.status);
+    }
+
     return res.json();
   },
 
-  // Cập nhật command hỗ trợ cả ON, OFF, AUTO, MANUAL
-  async control(deviceId: number, command: "ON" | "OFF" | "AUTO" | "MANUAL"): Promise<any> {
-    const res = await fetchWithAuth(`${API_BASE_URL}/farm/devices/control`, {
-      method: "POST",
-      body: JSON.stringify({ deviceId, command }),
-    });
-    
-    if (!res.ok) {
-      if (res.status === 409) {
-        throw new Error("Đang có lệnh chờ cho thiết bị này, vui lòng đợi!");
+  async control(
+    deviceId: number,
+    command: "ON" | "OFF" | "AUTO" | "MANUAL",
+    signal?: AbortSignal
+  ): Promise<any> {
+    const res = await fetchWithAuth(
+      `${API_BASE_URL}/farm/devices/control`,
+      {
+        method: "POST",
+        signal,
+        body: JSON.stringify({ deviceId, command }),
       }
-      throw new Error("Gửi lệnh thất bại");
+    );
+
+    const result = await res.json();
+
+    if (!res.ok && !result?.data?.commandId) {
+      throw new Error(
+        res.status === 409
+          ? "Thiết bị đang có lệnh chờ ACK."
+          : result.message ||
+              result.detail ||
+              "Gửi lệnh thất bại: HTTP " + res.status
+      );
     }
-    return res.json(); // Trả về data chứa commandId, status, confirmed...
+
+    return result;
   },
 
-  // Kiểm tra trạng thái lệnh qua commandId
-  async getCommandStatus(commandId: string | number): Promise<any> {
-    const res = await fetchWithAuth(`${API_BASE_URL}/actuation/commands/${commandId}`);
-    if (!res.ok) throw new Error("Không thể kiểm tra trạng thái lệnh");
+  async getCommandStatus(
+    commandId: string | number,
+    signal?: AbortSignal
+  ): Promise<any> {
+    const res = await fetchWithAuth(
+      `${API_BASE_URL}/actuation/commands/${commandId}`,
+      { cache: "no-store", signal }
+    );
+
+    if (!res.ok) {
+      throw new Error("Không kiểm tra được lệnh: HTTP " + res.status);
+    }
+
     return res.json();
   },
 };
 
-export const telemetryApi = {
-  async latest(farmId = 1, zoneId = 1): Promise<any> {
+export const telemetryApi = {async latest(farmId = 1,zoneId = 1,signal?: AbortSignal): Promise<any> {
     const res = await fetchWithAuth(
       `${API_BASE_URL}/telemetry/latest?farmId=${farmId}&zoneId=${zoneId}`,
-      {
-        cache: "no-store",
-      }
+      { cache: "no-store", signal }
     );
 
     if (!res.ok) {
-      throw new Error("Không thể tải thông số cảm biến từ máy chủ.");
+      throw new Error("Không tải được telemetry: HTTP " + res.status);
     }
 
     const result = await res.json();
-    return typeof result.data === "string"
-      ? JSON.parse(result.data)
-      : (result.data || result);
+    const data = result.data ?? result;
+
+    return typeof data === "string" ? JSON.parse(data) : data;
   },
 
-  async history(farmId = 1, zoneId = 1, range = "24h"): Promise<any> {
+  async history(farmId = 1,zoneId = 1,range = "24h",signal?: AbortSignal): Promise<any> {
     const res = await fetchWithAuth(
       `${API_BASE_URL}/telemetry/history?farmId=${farmId}&zoneId=${zoneId}&range=${range}`,
-      { cache: "no-store" }
+      { cache: "no-store", signal }
     );
-    if (!res.ok) throw new Error("Không tải được dữ liệu lịch sử");
+
+    if (!res.ok) {
+      throw new Error("Không tải được lịch sử: HTTP " + res.status);
+    }
+
     const result = await res.json();
-    return result.data || result;
-  }
+    return result.data ?? result;
+  },
 };
 
 export const birdApi = {
   async logs(farmId = 1, zoneId = 1): Promise<any> {
     const res = await fetchWithAuth(
-      `${API_BASE_URL}/bird-tracking/logs?farmId=${farmId}&zoneId=${zoneId}`
+      `${API_BASE_URL}/bird-tracking/logs?farmId=${farmId}&zoneId=${zoneId}`,
+      { cache: "no-store" }
     );
-    if (!res.ok) throw new Error("Không tải được log chim");
+
+    if (!res.ok) {
+      throw new Error(
+        "Không tải được sự kiện: HTTP " + res.status
+      );
+    }
+
     return res.json();
+  },
+
+  async imageUrl(snapshotKey: string): Promise<string> {
+    const res = await fetchWithAuth(
+      `${API_BASE_URL}/storage/url?fileName=${encodeURIComponent(snapshotKey)}`,
+      { cache: "no-store" }
+    );
+
+    if (!res.ok) {
+      throw new Error(
+        "Không lấy được địa chỉ ảnh: HTTP " + res.status
+      );
+    }
+
+    const result = await res.json();
+    const url = new URL(result.url);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("Địa chỉ ảnh không hợp lệ.");
+    }
+
+    return url.toString();
   },
 };

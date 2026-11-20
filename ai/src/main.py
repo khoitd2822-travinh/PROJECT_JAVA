@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from annotated_stream import AnnotatedStreamServer
 from counter import VirtualLineCounter
 from alerts import PredatorFilter, parse_conf_map
 from line_ui import ActionBar, edit_line, fit_scale
@@ -88,7 +89,10 @@ def parse_args():
     p.add_argument("--house-id", default=os.environ.get("HOUSE_ID", "house-01"))
     p.add_argument("--camera-id", default=os.environ.get("CAMERA_ID", "cam-01"))
     p.add_argument("--snapshot-dir", default=str(PROJECT / "snapshots"))
-    p.add_argument("--headless", action="store_true", help="Khong mo cua so (Docker/server)")
+    p.add_argument( "--headless", action="store_true",help="Khong mo cua so (Docker/server)",)
+    p.add_argument( "--web-stream",action="store_true",help="Phat video da ve AI cho dashboard",)
+    p.add_argument( "--stream-host",default="127.0.0.1",)
+    p.add_argument("--stream-port",type=int,default=8090,)
     return p.parse_args()
 
 
@@ -359,7 +363,25 @@ def main():
 
     print("Bat dau. Dung cac NUT o day cua so: VE LAI VACH / RESET IN-OUT / THOAT")
 
+    ai_stream = None
+
     try:
+        if args.web_stream:
+            ai_stream = AnnotatedStreamServer(
+                args.stream_host,
+                args.stream_port,
+            )
+            ai_stream.start()
+
+            print(
+                f"[AI STREAM] Video: "
+                f"http://{args.stream_host}:{ai_stream.port}/stream"
+            )
+            print(
+                f"[AI STREAM] Health: "
+                f"http://{args.stream_host}:{ai_stream.port}/health"
+            )
+
         while True:
             if reader:
                 seq, frame = reader.read()
@@ -512,7 +534,8 @@ def main():
                 pub.publish("heartbeat", {"fps": round(fps, 1), "in": counter.in_count,
                                           "out": counter.out_count, "current": counter.current,
                                           "ts": datetime.now(VIETNAM_TZ).isoformat()}, qos=0)
-
+            if ai_stream is not None:
+                ai_stream.update_frame(frame)
             if not args.headless:
                 s = fit_scale(w, h)
                 dw, dh = int(w * s), int(h * s)
@@ -564,6 +587,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if ai_stream is not None:
+            ai_stream.stop()
         elapsed = max(time.time() - t_start, 1e-6)
         resources = mon.stop() if mon else {}
         if reader:

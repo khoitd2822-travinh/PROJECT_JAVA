@@ -5,3 +5,4 @@ minio>=7.2
 numpy
 psutil>=5.9              # do CPU/RAM (main)
 lap>=0.5.12               # ByteTrack can thu vien nay
+tzdata

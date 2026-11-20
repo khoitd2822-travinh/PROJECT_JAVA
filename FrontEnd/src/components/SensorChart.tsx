@@ -25,7 +25,7 @@ export default function SensorChart({ data, isLoading, errorMessage }: SensorCha
     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "600" }}>
-          Biểu đồ lịch sử vi khí hậu và âm thanh (24h)
+          Biểu đồ lịch sử vi khí hậu (24h)
         </h3>
         <p style={{ fontSize: "13px", color: "#64748b" }}>
           Theo dõi nhiệt độ, độ ẩm, CO2, âm thanh và ánh sáng với trục thang đo tối ưu

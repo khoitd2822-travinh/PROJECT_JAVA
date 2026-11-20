@@ -16,6 +16,9 @@ export type LatestTelemetry = {
   sound: number | null;
   light: number | null;
   timestamp: string | null;
+  online?: boolean;
+  stale?: boolean;
+  gasRaw?: number | null;
 };
 
 // Thêm type ApiResponse để bọc dữ liệu trả về từ Spring Boot Backend

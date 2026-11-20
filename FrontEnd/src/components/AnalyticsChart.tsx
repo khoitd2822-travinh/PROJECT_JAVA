@@ -25,7 +25,7 @@ export default function AnalyticsChart({ data, isLoading, errorMessage }: Analyt
     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "12px", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
       <div style={{ marginBottom: "16px" }}>
         <h3 style={{ color: "#1e293b", fontSize: "18px", fontWeight: "600" }}>
-          Biểu đồ phân tích môi trường và vi khí hậu (24h)
+          Biểu đồ lịch sử vi khí hậu (24h)
         </h3>
         <p style={{ fontSize: "13px", color: "#64748b" }}>Cùng nguồn lịch sử 24 giờ với biểu đồ cảm biến</p>
       </div>
@@ -40,9 +40,7 @@ export default function AnalyticsChart({ data, isLoading, errorMessage }: Analyt
         <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ width: "12px", height: "3px", backgroundColor: "#10b981", display: "inline-block", borderRadius: "2px" }}></span> CO₂ (ppm)
         </span>
-        <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ width: "12px", height: "3px", backgroundColor: "#8b5cf6", display: "inline-block", borderRadius: "2px" }}></span> Âm thanh (dB)
-        </span>
+        
         <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ width: "12px", height: "3px", backgroundColor: "#f59e0b", display: "inline-block", borderRadius: "2px" }}></span> Ánh sáng (Lux)
         </span>
