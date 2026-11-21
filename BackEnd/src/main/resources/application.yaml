@@ -1,9 +1,11 @@
+
 server:
   port: 8080
 
 spring:
   config:
     import: optional:file:.env[.properties]
+
   application:
     name: BackEnd
 
@@ -29,7 +31,7 @@ spring:
       host: localhost
       port: 6379
 
-# 4. Cấu hình MQTT EMQX Broker 
+# 4. Cấu hình MQTT EMQX Broker
 mqtt:
   broker-url: tcp://localhost:1883
   client-id: swiftletcare_backend_consumer
@@ -46,27 +48,24 @@ s3:
   secret-key: ${S3_SECRET_KEY:abc}
   bucket-name: ${S3_BUCKET:swiftlet-alerts}
 
-# 6. JWT — chuỗi secret phải dài ít nhất 32 ký tự
+# 6. JWT
 jwt:
   secret: "swiftletcare-dev-secret-key-32b!!"
-  expirationMs: 86400000 #//token 24h
-# 7. Zalo OA — để trống vẫn chạy được; chỉ lỗi khi bấm gửi cảnh báo
+  expirationMs: 86400000
+
+# 7. Zalo OA
 zalo:
   oa:
+    access-token: "${ZALO_OA_ACCESS_TOKEN:}"
+    user-id: "${ZALO_OA_USER_ID:}"
 
-# 7. Telegram Bot — giá trị có thể đặt trong BackEnd/.env hoặc environment
+# 8. Telegram Bot
 telegram:
   bot:
     token: ${TELEGRAM_BOT_TOKEN:}
   webhook-url: ${TELEGRAM_WEBHOOK_URL:}
   webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
 
-
-    access-token: "${ZALO_OA_ACCESS_TOKEN:}"
-    user-id: "${ZALO_OA_USER_ID:}"
-
-   
-    
-# 8. Actuation config
+# 9. Actuation config
 actuation:
   ack-timeout-seconds: 180

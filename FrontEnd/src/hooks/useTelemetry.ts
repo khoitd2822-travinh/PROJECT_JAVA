@@ -1,100 +1,169 @@
-// src/hooks/useTelemetry.ts
+
+"use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { Client, IMessage } from "@stomp/stompjs";
 import { telemetryApi } from "../lib/api";
 import { TelemetryPoint, LatestTelemetry } from "../types/telemetry";
+
+const WS_URL = "ws://localhost:8080/ws-swiftlet";
+const TELEMETRY_TOPIC = "/topic/telemetry/1/1";
 
 function formatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+  return date.toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
-export function useTelemetry(pollingIntervalMs: number = 5000) {
+function toNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function mapLatest(raw: any): LatestTelemetry {
+  return {
+    temperature: toNumber(raw.temperature ?? raw.temp),
+    humidity: toNumber(raw.humidity ?? raw.hum),
+    co2: toNumber(raw.co2 ?? raw.co2Level),
+    sound: toNumber(raw.sound ?? raw.soundDb),
+    light: toNumber(raw.light ?? raw.lightLevel),
+    timestamp: raw.timestamp ? String(raw.timestamp) : new Date().toISOString(),
+  };
+}
+
+function toHistoryPoint(data: LatestTelemetry): TelemetryPoint {
+  return {
+    time: formatTime(data.timestamp ?? new Date().toISOString()),
+    temperature: data.temperature,
+    humidity: data.humidity,
+    co2: data.co2,
+    sound: data.sound,
+    light: data.light,
+  };
+}
+
+export function useTelemetry(_pollingIntervalMs: number = 5000) {
   const [historyData, setHistoryData] = useState<TelemetryPoint[]>([]);
   const [latestData, setLatestData] = useState<LatestTelemetry | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       setErrorMessage(null);
 
-      // 1. Gọi API lịch sử 24h
       const historyResult = await telemetryApi.history(1, 1, "24h");
       const resData = historyResult as any;
-      const rawHistory = Array.isArray(resData) 
-        ? resData 
-        : (resData && Array.isArray(resData.data) ? resData.data : []);
 
-      const telemetryPoints: TelemetryPoint[] = rawHistory.map((row: Record<string, unknown>) => ({
-        time: formatTime(String(row.time ?? "")),
-        temperature: row.temperature !== null && row.temperature !== undefined ? Number(row.temperature) : null,
-        humidity: row.humidity !== null && row.humidity !== undefined ? Number(row.humidity) : null,
-        co2: row.co2 !== null && row.co2 !== undefined ? Number(row.co2) : null,
-        sound: row.sound !== null && row.sound !== undefined ? Number(row.sound) : null,
-        light: row.light !== null && row.light !== undefined ? Number(row.light) : null,
-      }));
+      const rawHistory = Array.isArray(resData)
+        ? resData
+        : Array.isArray(resData?.data)
+          ? resData.data
+          : [];
+
+      const telemetryPoints: TelemetryPoint[] = rawHistory.map(
+        (row: Record<string, unknown>) => ({
+          time: formatTime(String(row.time ?? row.timestamp ?? "")),
+          temperature: toNumber(row.temperature ?? row.temp),
+          humidity: toNumber(row.humidity ?? row.hum),
+          co2: toNumber(row.co2 ?? row.co2Level),
+          sound: toNumber(row.sound ?? row.soundDb),
+          light: toNumber(row.light ?? row.lightLevel),
+        })
+      );
 
       setHistoryData(telemetryPoints);
-      // (Đã bỏ đoạn setErrorMessage khi mảng rỗng để không bị hiểu lầm là mất kết nối server)
 
-      // 2. Gọi API lấy giá trị mới nhất
       try {
         const latestResult = await telemetryApi.latest(1, 1);
-        const rawLatest = (latestResult && typeof latestResult === 'object' && 'data' in latestResult)
-          ? (latestResult as any).data 
-          : latestResult;
+        const rawLatest =
+          latestResult &&
+          typeof latestResult === "object" &&
+          "data" in latestResult
+            ? (latestResult as any).data
+            : latestResult;
 
-        if (rawLatest && typeof rawLatest === "object") {
-          setLatestData({
-            temperature: rawLatest.temperature !== null && rawLatest.temperature !== undefined ? Number(rawLatest.temperature) : (rawLatest.temp !== undefined ? Number(rawLatest.temp) : null),
-            humidity: rawLatest.humidity !== null && rawLatest.humidity !== undefined ? Number(rawLatest.humidity) : (rawLatest.hum !== undefined ? Number(rawLatest.hum) : null),
-            co2: rawLatest.co2 !== null && rawLatest.co2 !== undefined ? Number(rawLatest.co2) : (rawLatest.co2Level !== undefined ? Number(rawLatest.co2Level) : null),
-            sound: rawLatest.sound !== null && rawLatest.sound !== undefined ? Number(rawLatest.sound) : (rawLatest.soundDb !== undefined ? Number(rawLatest.soundDb) : null),
-            light: rawLatest.light !== null && rawLatest.light !== undefined ? Number(rawLatest.light) : null,
-            timestamp: rawLatest.timestamp ? String(rawLatest.timestamp) : null,
-          });
-        } else {
-          setLatestData(null);
+        const parsedLatest =
+          typeof rawLatest === "string" ? JSON.parse(rawLatest) : rawLatest;
+
+        if (parsedLatest && typeof parsedLatest === "object") {
+          setLatestData(mapLatest(parsedLatest));
         }
-      } catch {
-        setLatestData(null);
+      } catch (error) {
+        console.warn("Không thể tải telemetry mới nhất:", error);
       }
-
     } catch (error) {
-      console.warn("Lỗi khi tải dữ liệu telemetry:", error);
-      setHistoryData([]);
-      setLatestData(null);
-      setErrorMessage("Không thể kết nối đến Backend để lấy dữ liệu.");
+      console.error("Lỗi tải lịch sử telemetry:", error);
+      setErrorMessage("Không thể tải dữ liệu lịch sử từ Backend.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  // Tải dữ liệu ban đầu qua REST API.
   useEffect(() => {
-    let cancelled = false;
+    fetchData();
+  }, [fetchData]);
 
-    async function initialLoad() {
-      setIsLoading(true);
-      if (!cancelled) {
-        await fetchData();
-      }
-    }
+  // Kết nối WebSocket STOMP để nhận dữ liệu realtime.
+  useEffect(() => {
+    const client = new Client({
+      brokerURL: WS_URL,
+      reconnectDelay: 5000,
+      heartbeatIncoming: 10000,
+      heartbeatOutgoing: 10000,
 
-    initialLoad();
+      onConnect: () => {
+        console.log("[STOMP] Đã kết nối Backend");
 
-    const interval = setInterval(() => {
-      if (!cancelled) {
-        fetchData();
-      }
-    }, pollingIntervalMs);
+        setErrorMessage(null);
+
+        client.subscribe(TELEMETRY_TOPIC, (message: IMessage) => {
+          try {
+            const raw = JSON.parse(message.body);
+            const latest = mapLatest(raw);
+
+            setLatestData(latest);
+
+            const point = toHistoryPoint(latest);
+
+            setHistoryData((previous) => {
+              const updated = [...previous, point];
+              return updated.slice(-500);
+            });
+
+            console.log("[STOMP] Nhận telemetry:", raw);
+          } catch (error) {
+            console.error("[STOMP] Không thể xử lý dữ liệu:", error);
+          }
+        });
+      },
+
+      onStompError: (frame) => {
+        console.error("[STOMP] Broker báo lỗi:", frame.headers["message"]);
+      },
+
+      onWebSocketError: (event) => {
+        console.error("[STOMP] Lỗi WebSocket:", event);
+      },
+
+      onWebSocketClose: () => {
+        console.warn("[STOMP] WebSocket đã đóng. Đang chờ kết nối lại...");
+      },
+    });
+
+    client.activate();
 
     return () => {
-      cancelled = true;
-      clearInterval(interval);
+      client.deactivate();
     };
-  }, [fetchData, pollingIntervalMs]);
+  }, []);
 
   return {
     historyData,
