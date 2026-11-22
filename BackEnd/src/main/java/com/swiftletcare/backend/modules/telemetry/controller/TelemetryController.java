@@ -1,3 +1,4 @@
+
 package com.swiftletcare.backend.modules.telemetry.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,48 +17,61 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/v1/telemetry")
 public class TelemetryController {
+
     private final StringRedisTemplate redis;
     private final TelemetryRepository repository;
     private final ObjectMapper mapper;
 
-    public TelemetryController(StringRedisTemplate redis, TelemetryRepository repository, ObjectMapper mapper) {
+    public TelemetryController(
+            StringRedisTemplate redis,
+            TelemetryRepository repository,
+            ObjectMapper mapper) {
         this.redis = redis;
         this.repository = repository;
         this.mapper = mapper;
     }
 
     @GetMapping("/latest")
-    public ResponseEntity<Map<String, Object>> latest(@RequestParam(defaultValue = "1") Long farmId,
+    public ResponseEntity<Map<String, Object>> latest(
+            @RequestParam(defaultValue = "1") Long farmId,
             @RequestParam(defaultValue = "1") Long zoneId) throws Exception {
+
         scope(farmId, zoneId);
 
         String cached = redis.opsForValue().get("telemetry:latest:1:1");
+
         if (cached == null) {
             throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND, "Chua co telemetry");
+                    HttpStatus.NOT_FOUND,
+                    "Chua co telemetry");
         }
 
         ObjectNode data = (ObjectNode) mapper.readTree(cached);
 
         String liveBoot = redis.opsForValue().get("board:live:1:1");
 
-        boolean online = liveBoot != null && liveBoot.equals(data.path("bootId").asText());
+        boolean online = liveBoot != null
+                && liveBoot.equals(data.path("bootId").asText());
 
         boolean fresh = false;
 
         try {
-            Instant received = Instant.parse(data.path("timestamp").asText());
+            Instant received = Instant.parse(
+                    data.path("timestamp").asText());
 
-            long age = Duration.between(received, Instant.now()).toMillis();
+            long age = Duration.between(
+                    received,
+                    Instant.now()).toMillis();
 
             fresh = age >= 0 && age <= 15000;
 
         } catch (RuntimeException ignored) {
-            // Cache cũ thiếu timestamp được coi là dữ liệu cũ.
+            // Cache thiếu timestamp được xem là dữ liệu cũ.
         }
 
         data.put("online", online);
         data.put("stale", !online || !fresh);
+
         data.remove(List.of("sound", "soundDb"));
 
         return ResponseEntity.ok(Map.of(
@@ -66,8 +80,10 @@ public class TelemetryController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<Map<String, Object>> history(@RequestParam(defaultValue = "1") Long farmId,
-            @RequestParam(defaultValue = "1") Long zoneId, @RequestParam(defaultValue = "24h") String range) {
+    public ResponseEntity<Map<String, Object>> history(
+            @RequestParam(defaultValue = "1") Long farmId,
+            @RequestParam(defaultValue = "1") Long zoneId,
+            @RequestParam(defaultValue = "24h") String range) {
 
         scope(farmId, zoneId);
 
@@ -77,13 +93,19 @@ public class TelemetryController {
             case "12h" -> 12;
             case "24h" -> 24;
             default -> throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "range: 1h, 6h, 12h hoac 24h");
+                    HttpStatus.BAD_REQUEST,
+                    "range: 1h, 6h, 12h hoac 24h");
         };
 
-        var rows = repository.findByFarmIdAndZoneIdAndId_TimeAfterOrderById_TimeAsc(
+        Instant from = Instant.now().minus(
+                Duration.ofHours(hours));
+
+        // Lấy mẫu dữ liệu trực tiếp từ PostgreSQL,
+        // giới hạn tối đa 500 điểm.
+        var rows = repository.findSampledHistory(
                 farmId,
                 zoneId,
-                Instant.now().minus(Duration.ofHours(hours)));
+                from);
 
         List<Map<String, Object>> points = new ArrayList<>();
 
@@ -106,9 +128,12 @@ public class TelemetryController {
     }
 
     private void scope(Long farmId, Long zoneId) {
-        if (!Objects.equals(farmId, 1L) || !Objects.equals(zoneId, 1L)) {
+        if (!Objects.equals(farmId, 1L)
+                || !Objects.equals(zoneId, 1L)) {
+
             throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "Chi ho tro farmId=1, zoneId=1");
+                    HttpStatus.BAD_REQUEST,
+                    "Chi ho tro farmId=1, zoneId=1");
         }
     }
 }

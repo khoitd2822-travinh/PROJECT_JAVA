@@ -63,4 +63,5 @@ telegram:
     
 # 8. Actuation config
 actuation:
+  enabled: false
   ack-timeout-seconds: 180

@@ -1,3 +1,4 @@
+
 package com.swiftletcare.backend.modules.actuation.service;
 
 import com.swiftletcare.backend.modules.actuation.dto.CommandAck;
@@ -29,6 +30,7 @@ import java.util.UUID;
 
 @Service
 public class CommandService {
+
     private static final Logger log = LoggerFactory.getLogger(CommandService.class);
     private static final String BOARD_ID = "ESP32_ZONE_1";
 
@@ -38,23 +40,45 @@ public class CommandService {
     private final TransactionTemplate transaction;
     private final long timeoutSeconds;
     private final SimpMessagingTemplate messagingTemplate;
+    private final boolean actuationEnabled;
 
-    public CommandService(DeviceRepository devices, ActuationCommandRepository commands, ActuationService publisher,
-            SimpMessagingTemplate messagingTemplate, PlatformTransactionManager transactionManager,
-            @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds) {
+    public CommandService(
+            DeviceRepository devices,
+            ActuationCommandRepository commands,
+            ActuationService publisher,
+            SimpMessagingTemplate messagingTemplate,
+            PlatformTransactionManager transactionManager,
+            @Value("${actuation.ack-timeout-seconds:60}") long timeoutSeconds,
+            @Value("${actuation.enabled:false}") boolean actuationEnabled) {
+
         this.devices = devices;
         this.commands = commands;
         this.publisher = publisher;
         this.messagingTemplate = messagingTemplate;
         this.transaction = new TransactionTemplate(transactionManager);
+        this.actuationEnabled = actuationEnabled;
+
         if (timeoutSeconds < 5 || timeoutSeconds > 300) {
-            throw new IllegalArgumentException("ACK timeout phải từ 5 đến 300 giây");
+            throw new IllegalArgumentException(
+                    "ACK timeout phải từ 5 đến 300 giây");
         }
+
         this.timeoutSeconds = timeoutSeconds;
     }
 
     public CommandResponse submit(DeviceControlRequest request) {
-        if (request == null || request.getDeviceId() == null || request.getDeviceId() <= 0) {
+
+        // Demo/read-only mode: khóa toàn bộ lệnh điều khiển
+        if (!actuationEnabled) {
+            log.warn("Actuation blocked: system is in read-only demo mode");
+            throw error(
+                    HttpStatus.FORBIDDEN,
+                    "Điều khiển thiết bị đang bị khóa trong chế độ Demo"
+            );
+        }
+
+        if (request == null || request.getDeviceId() == null
+                || request.getDeviceId() <= 0) {
             throw error(HttpStatus.BAD_REQUEST, "deviceId không hợp lệ");
         }
 
@@ -66,30 +90,49 @@ public class CommandService {
 
         if (!java.util.Set.of("ON", "OFF", "AUTO", "MANUAL")
                 .contains(normalized)) {
-            throw error(HttpStatus.BAD_REQUEST, "command chỉ được là ON, OFF, AUTO hoặc MANUAL");
+            throw error(
+                    HttpStatus.BAD_REQUEST,
+                    "command chỉ được là ON, OFF, AUTO hoặc MANUAL"
+            );
         }
 
-        boolean hasRequestedState = "ON".equals(normalized) || "OFF".equals(normalized);
+        boolean hasRequestedState =
+                "ON".equals(normalized) || "OFF".equals(normalized);
 
-        String requestedMode = hasRequestedState ? "MANUAL" : normalized;
+        String requestedMode =
+                hasRequestedState ? "MANUAL" : normalized;
 
         ActuationCommand command = transaction.execute(tx -> {
-            Device device = devices.findForUpdate(request.getDeviceId())
-                    .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Không tìm thấy thiết bị"));
 
-            if (!Objects.equals(device.getFarmId(), 1L) || !Objects.equals(device.getZoneId(), 1L)) {
-                throw error(HttpStatus.BAD_REQUEST, "Chỉ hỗ trợ farmId=1, zoneId=1");
+            Device device = devices.findForUpdate(request.getDeviceId())
+                    .orElseThrow(() ->
+                            error(HttpStatus.NOT_FOUND, "Không tìm thấy thiết bị"));
+
+            if (!Objects.equals(device.getFarmId(), 1L)
+                    || !Objects.equals(device.getZoneId(), 1L)) {
+                throw error(
+                        HttpStatus.BAD_REQUEST,
+                        "Chỉ hỗ trợ farmId=1, zoneId=1"
+                );
             }
+
             DeviceTarget target;
 
             try {
                 target = DeviceTarget.fromDeviceType(device.getDeviceType());
             } catch (IllegalArgumentException exception) {
-                throw error(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage());
+                throw error(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        exception.getMessage()
+                );
             }
+
             if (commands.existsByDeviceIdAndStatus(
                     device.getId(), CommandStatus.PENDING)) {
-                throw error(HttpStatus.CONFLICT, "Thiết bị đang có lệnh chờ ACK");
+                throw error(
+                        HttpStatus.CONFLICT,
+                        "Thiết bị đang có lệnh chờ ACK"
+                );
             }
 
             Instant now = Instant.now();
@@ -100,30 +143,31 @@ public class CommandService {
             created.setBoardId(BOARD_ID);
             created.setTarget(target.getMqttTarget());
 
-            created.setRequestedState(hasRequestedState ? ("ON".equals(normalized) ? 1 : 0) : null);
+            created.setRequestedState(
+                    hasRequestedState
+                            ? ("ON".equals(normalized) ? 1 : 0)
+                            : null
+            );
 
             created.setRequestedMode(requestedMode);
             created.setStatus(CommandStatus.PENDING);
             created.setCreatedAt(now);
-            created.setExpiresAt(now.plus(Duration.ofSeconds(timeoutSeconds)));
+            created.setExpiresAt(
+                    now.plus(Duration.ofSeconds(timeoutSeconds))
+            );
             created.setMessage("Đang chờ ACK");
+
             device.setLastAckStatus("PENDING");
             device.setLastMessage("Đang chờ ACK từ thiết bị...");
+
             return commands.saveAndFlush(created);
         });
 
         Objects.requireNonNull(command);
 
-        // Bổ sung đoạn này để báo frontend thiết bị đang chờ ACK
-        // devices.findById(command.getDeviceId()).ifPresent(d -> {
-        // d.setLastAckStatus("PENDING");
-        // d.setLastMessage("Đang chờ ACK từ thiết bị...");
-        // devices.save(d);
-        // messagingTemplate.convertAndSend("/topic/device-status", d);
-        // });
-
         if (!publisher.publishCommand(command)) {
             transaction.executeWithoutResult(tx -> {
+
                 ActuationCommand stored = commands
                         .findForUpdate(command.getId())
                         .orElseThrow();
@@ -131,15 +175,22 @@ public class CommandService {
                 if (stored.getStatus() == CommandStatus.PENDING) {
                     stored.setStatus(CommandStatus.PUBLISH_FAILED);
                     stored.setCompletedAt(Instant.now());
-                    stored.setMessage("BE không xác nhận được publish thành công");
+                    stored.setMessage(
+                            "BE không xác nhận được publish thành công"
+                    );
 
-                    // Bổ sung cập nhật database thiết bị để lưu trạng thái PUBLISH_FAILED bền vững
-                    devices.findForUpdate(stored.getDeviceId()).ifPresent(d -> {
-                        d.setLastAckStatus("PUBLISH_FAILED");
-                        d.setLastMessage("Không thể publish lệnh qua MQTT broker");
-                        devices.save(d);
-                        messagingTemplate.convertAndSend("/topic/device-status", d);
-                    });
+                    devices.findForUpdate(stored.getDeviceId())
+                            .ifPresent(d -> {
+                                d.setLastAckStatus("PUBLISH_FAILED");
+                                d.setLastMessage(
+                                        "Không thể publish lệnh qua MQTT broker"
+                                );
+                                devices.save(d);
+
+                                messagingTemplate.convertAndSend(
+                                        "/topic/device-status", d
+                                );
+                            });
                 }
             });
         }
@@ -148,23 +199,30 @@ public class CommandService {
     }
 
     public CommandResponse get(UUID commandId) {
+
         return transaction.execute(tx -> {
+
             ActuationCommand command = commands
                     .findForUpdate(commandId)
-                    .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Không tìm thấy lệnh"));
+                    .orElseThrow(() ->
+                            error(HttpStatus.NOT_FOUND, "Không tìm thấy lệnh"));
 
             expireIfNeeded(command);
+
             return CommandResponse.from(command);
         });
     }
 
     public void handleAck(CommandAck ack) {
-        if (ack == null || ack.commandId() == null || ack.success() == null) {
+
+        if (ack == null || ack.commandId() == null
+                || ack.success() == null) {
             log.warn("Bỏ qua ACK thiếu commandId/success");
             return;
         }
 
         transaction.executeWithoutResult(tx -> {
+
             ActuationCommand command = commands
                     .findForUpdate(ack.commandId())
                     .orElse(null);
@@ -175,46 +233,67 @@ public class CommandService {
             }
 
             expireIfNeeded(command);
+
             if (command.getStatus() != CommandStatus.PENDING) {
-                log.info("Bỏ qua ACK commandId={}, status={}",
+                log.info(
+                        "Bỏ qua ACK commandId={}, status={}",
                         command.getId(),
-                        command.getStatus());
+                        command.getStatus()
+                );
                 return;
             }
 
             if (!Objects.equals(command.getBoardId(), ack.boardId())
                     || !Objects.equals(command.getTarget(), ack.target())) {
-
                 return;
             }
+
             Device device = devices.findForUpdate(command.getDeviceId())
-                    .orElseThrow(() -> error(HttpStatus.NOT_FOUND, "Thiết bị không còn tồn tại"));
+                    .orElseThrow(() ->
+                            error(
+                                    HttpStatus.NOT_FOUND,
+                                    "Thiết bị không còn tồn tại"
+                            ));
 
             if (!ack.success()) {
                 command.setStatus(CommandStatus.REJECTED);
                 command.setCompletedAt(Instant.now());
                 command.setMessage(shortMessage(ack.message()));
 
-                // Bổ sung cập nhật device và bắn websocket
                 device.setLastAckStatus("FAILED");
                 device.setLastMessage(shortMessage(ack.message()));
+
                 devices.save(device);
-                messagingTemplate.convertAndSend("/topic/device-status", device);
+
+                messagingTemplate.convertAndSend(
+                        "/topic/device-status", device
+                );
+
                 return;
             }
 
-            if (ack.state() == null || (ack.state() != 0 && ack.state() != 1)) {
-                log.warn("ACK có state không hợp lệ: {}", command.getId());
+            if (ack.state() == null
+                    || (ack.state() != 0 && ack.state() != 1)) {
+                log.warn(
+                        "ACK có state không hợp lệ: {}",
+                        command.getId()
+                );
                 return;
             }
 
-            String expectedMode = command.getRequestedMode() == null ? "MANUAL" : command.getRequestedMode();
+            String expectedMode =
+                    command.getRequestedMode() == null
+                            ? "MANUAL"
+                            : command.getRequestedMode();
+
             if (!expectedMode.equals(ack.mode())) {
                 log.warn("ACK sai mode: {}", command.getId());
                 return;
             }
 
-            if (command.getRequestedState() != null && !Objects.equals(command.getRequestedState(), ack.state())) {
+            if (command.getRequestedState() != null
+                    && !Objects.equals(
+                            command.getRequestedState(), ack.state())) {
                 log.warn("ACK sai state: {}", command.getId());
                 return;
             }
@@ -223,9 +302,9 @@ public class CommandService {
             device.setControlMode(ack.mode());
             device.setLastActive(LocalDateTime.now());
 
-            // Bổ sung 3 dòng này để cập nhật trạng thái ACK
             device.setLastAckStatus("SUCCESS");
             device.setLastMessage(shortMessage(ack.message()));
+
             devices.save(device);
 
             command.setActualState(ack.state());
@@ -234,8 +313,9 @@ public class CommandService {
             command.setCompletedAt(Instant.now());
             command.setMessage(shortMessage(ack.message()));
 
-            // Bổ sung dòng này để đẩy real-time xuống UI
-            messagingTemplate.convertAndSend("/topic/device-status", device);
+            messagingTemplate.convertAndSend(
+                    "/topic/device-status", device
+            );
 
             log.info("Confirmed commandId={}", command.getId());
         });
@@ -243,13 +323,17 @@ public class CommandService {
 
     @Scheduled(fixedDelay = 1000)
     public void expirePendingCommands() {
+
         var expired = commands
                 .findTop100ByStatusAndExpiresAtBeforeOrderByExpiresAtAsc(
                         CommandStatus.PENDING,
-                        Instant.now());
+                        Instant.now()
+                );
 
         for (ActuationCommand candidate : expired) {
+
             transaction.executeWithoutResult(tx -> {
+
                 commands.findForUpdate(candidate.getId())
                         .ifPresent(this::expireIfNeeded);
             });
@@ -257,28 +341,46 @@ public class CommandService {
     }
 
     private void expireIfNeeded(ActuationCommand command) {
-        if (command.getStatus() == CommandStatus.PENDING && !command.getExpiresAt().isAfter(Instant.now())) {
+
+        if (command.getStatus() == CommandStatus.PENDING
+                && !command.getExpiresAt().isAfter(Instant.now())) {
+
             command.setStatus(CommandStatus.TIMED_OUT);
             command.setCompletedAt(Instant.now());
-            command.setMessage("Hết thời gian chờ, chưa xác nhận được kết quả");
+            command.setMessage(
+                    "Hết thời gian chờ, chưa xác nhận được kết quả"
+            );
 
-            devices.findForUpdate(command.getDeviceId()).ifPresent(d -> {
-                d.setLastAckStatus("TIMED_OUT");
-                d.setLastMessage("Hết thời gian chờ phản hồi");
-                devices.save(d);
-                messagingTemplate.convertAndSend("/topic/device-status", d);
-            });
+            devices.findForUpdate(command.getDeviceId())
+                    .ifPresent(d -> {
+                        d.setLastAckStatus("TIMED_OUT");
+                        d.setLastMessage(
+                                "Hết thời gian chờ phản hồi"
+                        );
+
+                        devices.save(d);
+
+                        messagingTemplate.convertAndSend(
+                                "/topic/device-status", d
+                        );
+                    });
         }
     }
 
     private String shortMessage(String message) {
+
         if (message == null || message.isBlank()) {
             return "Board đã phản hồi";
         }
-        return message.substring(0, Math.min(message.length(), 250));
+
+        return message.substring(
+                0, Math.min(message.length(), 250)
+        );
     }
 
-    private ResponseStatusException error(HttpStatus status, String message) {
+    private ResponseStatusException error(
+            HttpStatus status, String message) {
+
         return new ResponseStatusException(status, message);
     }
 }
