@@ -1,11 +1,4 @@
-
 package com.swiftletcare.backend.config;
-
-import org.springframework.http.HttpMethod;
-import com.swiftletcare.backend.modules.auth.security.AuthEntryPointJwt;
-import com.swiftletcare.backend.modules.auth.security.AuthTokenFilter;
-import com.swiftletcare.backend.modules.auth.security.CustomAccessDeniedHandler;
-import com.swiftletcare.backend.modules.auth.security.UserDetailsServiceImpl;
 
 import com.swiftletcare.backend.modules.auth.security.AuthTokenFilter;
 import com.swiftletcare.backend.modules.auth.security.UserDetailsServiceImpl;
