@@ -393,7 +393,7 @@ def write_if_changed(path: Path, content: str) -> bool:
     return True
 
 
-def auto_sync_local_config(
+def resolve_local_network(
     *,
     broker_host: str | None = None,
     broker_port: int = DEFAULT_BROKER_PORT,
@@ -402,24 +402,13 @@ def auto_sync_local_config(
     interactive: bool = False,
     auto_confirm: bool = False,
     allow_keychain: bool = False,
-    check_broker_conn: bool = True,
-    quiet: bool = False,
-) -> int:
-    def log(msg: str = "") -> None:
-        if not quiet:
-            print(msg)
-
+) -> dict[str, object]:
+    """Tu dong phat hien LAN IP, Wi-Fi SSID va mat khau local (khong ghi file)."""
     candidates = list_candidate_ips()
     default_ip = detect_default_ip()
 
-    # 1. Resolve LAN broker host
     if not broker_host:
         detected_ip = resolve_lan_ip(candidates, default_ip)
-        if candidates and not quiet and interactive and not auto_confirm:
-            log("\n[1] Cac IP LAN cua may nay:")
-            for idx, (ip, alias) in enumerate(candidates, 1):
-                tag = "  <-- route mac dinh" if ip == default_ip else ""
-                log(f"    [{idx}] {ip:<16} {alias}{tag}")
         if detected_ip:
             broker_host = detected_ip
         else:
@@ -430,9 +419,7 @@ def auto_sync_local_config(
                 broker_host = input("    Nhap IP LAN may chay Docker/EMQX: ").strip()
             if not broker_host:
                 broker_host = "localhost"
-                log("[WARN] Khong do duoc IP LAN, tam dung fallback 'localhost'.")
 
-    # 2. Resolve Wi-Fi SSID
     if wifi_ssid is None:
         detected_ssid = detect_wifi_ssid()
         if detected_ssid:
@@ -446,10 +433,10 @@ def auto_sync_local_config(
             else:
                 wifi_ssid = "Wokwi-GUEST"
 
-    # 3. Resolve Wi-Fi password (OS lookup -> preserve existing for same SSID -> interactive prompt -> empty)
     if wifi_password is None:
         if wifi_ssid == "Wokwi-GUEST":
             wifi_password = ""
+            pw_source = "Wokwi open guest"
         else:
             os_pw = detect_wifi_password(wifi_ssid, allow_keychain=allow_keychain)
             if os_pw is not None:
@@ -471,10 +458,57 @@ def auto_sync_local_config(
                     wifi_password = ""
                     pw_source = "khong lay duoc tu dong (de trong)"
     else:
-        pw_source = "truyen qua --wifi-password"
+        pw_source = "Wokwi open guest" if wifi_ssid == "Wokwi-GUEST" else "truyen qua --wifi-password"
 
-    if wifi_ssid == "Wokwi-GUEST":
-        pw_source = "Wokwi open guest"
+    return {
+        "broker_host": broker_host,
+        "broker_port": broker_port,
+        "wifi_ssid": wifi_ssid,
+        "wifi_password": wifi_password,
+        "pw_source": pw_source,
+        "candidates": candidates,
+        "default_ip": default_ip,
+    }
+
+
+def auto_sync_local_config(
+    *,
+    broker_host: str | None = None,
+    broker_port: int = DEFAULT_BROKER_PORT,
+    wifi_ssid: str | None = None,
+    wifi_password: str | None = None,
+    interactive: bool = False,
+    auto_confirm: bool = False,
+    allow_keychain: bool = False,
+    check_broker_conn: bool = True,
+    quiet: bool = False,
+) -> int:
+    def log(msg: str = "") -> None:
+        if not quiet:
+            print(msg)
+
+    resolved = resolve_local_network(
+        broker_host=broker_host,
+        broker_port=broker_port,
+        wifi_ssid=wifi_ssid,
+        wifi_password=wifi_password,
+        interactive=interactive,
+        auto_confirm=auto_confirm,
+        allow_keychain=allow_keychain,
+    )
+    candidates = resolved["candidates"]
+    default_ip = resolved["default_ip"]
+    broker_host = str(resolved["broker_host"])
+    broker_port = int(resolved["broker_port"])
+    wifi_ssid = str(resolved["wifi_ssid"])
+    wifi_password = str(resolved["wifi_password"])
+    pw_source = str(resolved["pw_source"])
+
+    if candidates and not quiet and interactive and not auto_confirm:
+        log("\n[1] Cac IP LAN cua may nay:")
+        for idx, (ip, alias) in enumerate(candidates, 1):
+            tag = "  <-- route mac dinh" if ip == default_ip else ""
+            log(f"    [{idx}] {ip:<16} {alias}{tag}")
 
     log("=" * 70)
     log("SwiftletCare - Tu dong cau hinh mang local (LAN + Wi-Fi)")

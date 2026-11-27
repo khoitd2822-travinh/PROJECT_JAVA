@@ -12,7 +12,33 @@ Monorepo for SwiftletCare (`BackEnd` Spring Boot + `FrontEnd` Next.js + `ai` Edg
 - `firmware/esp32-cam/` — ESP32-CAM HTTP + MJPEG live video stream (`:80/` UI, `:81/stream`, mDNS `swiftlet-cam.local`)
 - `firmware/scripts/` — Cross-platform Wi-Fi & LAN IP auto-detection (`setup_local_config.py`, PlatformIO `pio_auto_local_config.py`)
 
-## Quick Start (Any Machine)
+## Quick Start (1 Command — Any Machine)
+
+Plug in your ESP32 / ESP32-CAM USB power/data cables and start the entire stack (Docker + USB NVS provisioning + UDP LAN discovery + BackEnd + FrontEnd + AI Edge + browser `http://localhost:3000`) with a single command:
+
+- **Windows (PowerShell):**
+  ```powershell
+  .\start.ps1
+  ```
+- **Linux / macOS:**
+  ```bash
+  ./start.sh
+  ```
+- **Or cross-platform directly:**
+  ```bash
+  python start_system.py          # auto-sync Wi-Fi/LAN, start all services, open http://localhost:3000
+  python start_system.py --check  # inspect status of network, Docker, BackEnd, FrontEnd, USB ports
+  python start_system.py --flash all  # compile & upload firmware + auto-start everything
+  ```
+
+How zero-reflash plug-and-play works:
+1. Both `esp32-main` and `esp32-cam` persist `wifi_ssid`, `wifi_password`, and `mqtt_host` in ESP32 NVS (`Preferences`) and listen on USB Serial (`115200`) for `__SWIFTLET_CFG__` updates, so plugged-in boards receive the new laptop's Wi-Fi & LAN IP in ~2 seconds without recompiling.
+2. `esp32-main` also broadcasts `SWIFTLET_DISCOVER_MQTT` on UDP port `41234` and `start_system.py` replies with the current machine's LAN IP automatically (so changing Docker host IP on the same Wi-Fi works even without a USB cable).
+3. `esp32-cam` advertises `swiftlet-cam.local` via mDNS and serves `/stream` on `:81/stream`.
+
+---
+
+## Step-by-Step Manual Run (if needed)
 
 ### 1. Start Infrastructure (Docker)
 
