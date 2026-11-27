@@ -16,10 +16,11 @@ Monorepo for SwiftletCare (`BackEnd` Spring Boot + `FrontEnd` Next.js + `ai` Edg
 
 Plug in your ESP32 / ESP32-CAM USB power/data cables and start the entire stack (Docker + USB NVS provisioning + UDP LAN discovery + BackEnd + FrontEnd + AI Edge + browser `http://localhost:3000`) with a single command:
 
-- **Windows (PowerShell):**
-  ```powershell
-  .\start.ps1
+- **Windows (Double-click / CMD / PowerShell):**
+  ```cmd
+  start.bat
   ```
+  *(or in PowerShell: `.\start.ps1`)*
 - **Linux / macOS:**
   ```bash
   ./start.sh
