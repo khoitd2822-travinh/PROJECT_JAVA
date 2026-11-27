@@ -65,14 +65,14 @@ class AutomationTests(unittest.TestCase):
 
     def test_udp_discovery_responder_roundtrip(self) -> None:
         stop_event = threading.Event()
-        thread = ss.start_udp_discovery_server("192.168.55.10", 1883, stop_event)
-        if thread is None:
-            self.skipTest("UDP port 41234 already bound on host")
+        test_port = 41299
+        thread = ss.start_udp_discovery_server("192.168.55.10", 1883, stop_event, discovery_port=test_port)
+        self.assertIsNotNone(thread)
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(2.0)
             try:
-                sock.sendto(b"SWIFTLET_DISCOVER_MQTT", ("127.0.0.1", ss.DISCOVERY_PORT))
+                sock.sendto(b"SWIFTLET_DISCOVER_MQTT", ("127.0.0.1", test_port))
                 data, _ = sock.recvfrom(512)
                 payload = json.loads(data.decode("utf-8"))
                 self.assertEqual(payload["service"], "swiftlet-emqx")
@@ -82,6 +82,7 @@ class AutomationTests(unittest.TestCase):
                 sock.close()
         finally:
             stop_event.set()
+            assert thread is not None
             thread.join(timeout=2.0)
 
 

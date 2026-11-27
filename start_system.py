@@ -91,16 +91,22 @@ def wait_until(
     return False
 
 
-def start_udp_discovery_server(broker_host: str, broker_port: int, stop_event: threading.Event) -> threading.Thread | None:
+def start_udp_discovery_server(
+    broker_host: str,
+    broker_port: int,
+    stop_event: threading.Event,
+    discovery_port: int = DISCOVERY_PORT,
+) -> threading.Thread | None:
     """Tra loi goi tin SWIFTLET_DISCOVER_MQTT de ESP32 tu dong tim thay EMQX trong LAN."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("0.0.0.0", DISCOVERY_PORT))
+        if platform.system() != "Windows":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", discovery_port))
         sock.settimeout(0.5)
     except OSError as exc:
         sock.close()
-        print(f"[DISCOVER] Khong mo duoc UDP :{DISCOVERY_PORT} ({exc}) -> bo qua.")
+        print(f"[DISCOVER] Khong mo duoc UDP :{discovery_port} ({exc}) -> bo qua.")
         return None
 
     reply_payload = json.dumps({
@@ -128,8 +134,33 @@ def start_udp_discovery_server(broker_host: str, broker_port: int, stop_event: t
 
     t = threading.Thread(target=serve, name="mqtt-udp-discovery", daemon=True)
     t.start()
-    print(f"[DISCOVER] UDP Broker Responder san sang tai :{DISCOVERY_PORT} -> {broker_host}:{broker_port}")
+    print(f"[DISCOVER] UDP Broker Responder san sang tai :{discovery_port} -> {broker_host}:{broker_port}")
     return t
+
+
+def stop_conflicting_mocks() -> None:
+    """Dung cac script mock ESP32 cu neu dang chay ngam de tranh ghi de du lieu thiet bi that."""
+    targets = ("mock_dev_publisher.py", "mock_dev_board.py")
+    if platform.system() == "Windows":
+        ps = (
+            "Get-CimInstance Win32_Process -Filter \"Name LIKE 'python%'\" | "
+            "Where-Object { $_.CommandLine -match 'mock_dev_publisher\\.py|mock_dev_board\\.py' } | "
+            "ForEach-Object { \"$($_.ProcessId)|$($_.CommandLine)\" }"
+        )
+        proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
+            if "|" not in line:
+                continue
+            pid_s, cmdline = line.split("|", 1)
+            pid_s = pid_s.strip()
+            if pid_s.isdigit():
+                subprocess.run(["taskkill", "/F", "/PID", pid_s], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"[CLEANUP] Da dung script mock cu (PID {pid_s}): {cmdline.strip()}")
+    else:
+        for script_name in targets:
+            proc = subprocess.run(["pkill", "-f", script_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if proc.returncode == 0:
+                print(f"[CLEANUP] Da dung script mock cu: {script_name}")
 
 
 def kill_listeners_on_port(port: int) -> None:
@@ -312,6 +343,7 @@ def main() -> int:
     parser.add_argument("--skip-usb", action="store_true", help="Bo qua quet & cap nhat USB ESP32")
     parser.add_argument("--force-usb", action="store_true", help="Gui lai cau hinh NVS cho ESP32 ke ca khi da khop")
     parser.add_argument("--no-browser", action="store_true", help="Khong tu dong mo trinh duyet")
+    parser.add_argument("--keep-mocks", action="store_true", help="Khong tu dong tat mock_dev_*.py dang chay")
     parser.add_argument("--no-wait", action="store_true", help="Khoi dong xong va thoat ngay (chi dung cho script/kiem tra)")
     parser.add_argument("--check", action="store_true", help="Chi kiem tra trang thai he thong, khong khoi chay")
     args = parser.parse_args()
@@ -354,6 +386,8 @@ def main() -> int:
     managed_procs: list[subprocess.Popen] = []
 
     try:
+        if not args.keep_mocks:
+            stop_conflicting_mocks()
         start_udp_discovery_server(broker_host, broker_port, stop_event)
 
         if args.flash:

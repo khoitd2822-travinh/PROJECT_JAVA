@@ -99,16 +99,23 @@ int targetIndex(const String &target) {
 }
 
 void writeOutput(int index, bool on) {
-  uint8_t offLevel =
-      OUTPUT_ON_LEVELS[index] == HIGH ? LOW : HIGH;
+  uint8_t targetLevel =
+      on ? OUTPUT_ON_LEVELS[index]
+         : (OUTPUT_ON_LEVELS[index] == HIGH ? LOW : HIGH);
 
-  digitalWrite(
-      OUTPUT_PINS[index],
-      on ? OUTPUT_ON_LEVELS[index] : offLevel
-  );
+  digitalWrite(OUTPUT_PINS[index], targetLevel);
+  delayMicroseconds(20);
 
-  outputStates[index] =
-      digitalRead(OUTPUT_PINS[index]) == OUTPUT_ON_LEVELS[index];
+  // Ghi nhan trang thai theo lenh da xuat ra GPIO latch; neu tai ngoai keo lech
+  // muc dien ap thi chi canh bao Serial thay vi tu reset trang thai ve OFF.
+  outputStates[index] = on;
+  if (digitalRead(OUTPUT_PINS[index]) != targetLevel) {
+    Serial.printf(
+        "[WARN] GPIO %u readback mismatch (target=%u, external load may pull voltage)\n",
+        static_cast<unsigned int>(OUTPUT_PINS[index]),
+        static_cast<unsigned int>(targetLevel)
+    );
+  }
 }
 
 void evaluateAuto() {
