@@ -10,15 +10,20 @@ CREATE TABLE IF NOT EXISTS sensor_telemetry (
     co2_level INTEGER,
     light_level INTEGER,
     sound_db DOUBLE PRECISION,
+    gas_raw INTEGER,
     fan_state BOOLEAN,
+    fan_smoke_state BOOLEAN,
     mist_state BOOLEAN,
     heater_state BOOLEAN,
     alarm_state BOOLEAN,
     PRIMARY KEY (time, device_id)
 );
 
-SELECT create_hypertable('sensor_telemetry', 'time', 
+SELECT create_hypertable('sensor_telemetry', 'time',
 if_not_exists => TRUE, chunk_time_interval => INTERVAL '7 days');
 
-CREATE INDEX IF NOT EXISTS idx_telemetry_device_time 
+CREATE INDEX IF NOT EXISTS idx_telemetry_device_time
 ON sensor_telemetry (device_id, time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_farm_zone_time
+ON sensor_telemetry (farm_id, zone_id, time DESC);

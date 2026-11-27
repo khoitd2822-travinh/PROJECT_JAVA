@@ -48,3 +48,26 @@ FE subscribes to `/topic/bird-tracking/{houseId}/{cameraId}` for count, alert,
 alert-image, heartbeat and status. It can bootstrap state with
 `GET /api/v1/bird-tracking/cameras/{cameraId}/state` and fetch history/current through
 the existing bird-tracking APIs.
+
+---
+
+# Telemetry & Actuation MQTT contract (`ESP32_ZONE_1`)
+
+Base namespace for environmental sensing & relay control (zone `1`, board `ESP32_ZONE_1`):
+
+| Topic | Direction | Purpose |
+| --- | --- | --- |
+| `swiftlet/telemetry/1/1` | ESP32 -> BE | Periodic sensor & relay payload (`boardId`, `bootId`, `farmId`, `zoneId`, `temp`, `hum`, `co2`, `light`, `gasRaw`, `relays`, `modes`, `valid`, `clockReady`). |
+| `swiftlet/heartbeat/1/1` | ESP32 -> BE | Liveness & runtime state (`boardId`, `bootId`, `seq`, `uptime`, `wifiRssi`, `clockReady`, `relays`, `modes`). |
+| `swiftlet/status/1/1` | ESP32 -> BE | Retained online/offline LWT status (`online`, `boardId`, `bootId`). |
+| `swiftlet/command/1/1` | BE -> ESP32 | Actuation command (`commandId`, `boardId`, `target`, `mode`, `action`, `state`, `expiresAt`). Targets: `fan`, `fan_smoke`, `mist`, `heat`, `alarm`. |
+| `swiftlet/ack/1/1` | ESP32 -> BE | Non-retained command acknowledgement (`commandId`, `boardId`, `target`, `status`, `appliedMode`, `appliedState`). |
+
+## Automatic per-machine Wi-Fi & LAN IP config
+
+Never commit personal Wi-Fi passwords or LAN IPs to Git. Both `firmware/esp32-main` and
+`firmware/esp32-cam` automatically run `firmware/scripts/pio_auto_local_config.py` before
+every `pio run` build (or run `python firmware/scripts/setup_local_config.py --yes` directly)
+to detect the machine's active LAN IP and Wi-Fi SSID/password and generate git-ignored local
+headers (`config.local.h` and `wifi_config.local.h`).
+

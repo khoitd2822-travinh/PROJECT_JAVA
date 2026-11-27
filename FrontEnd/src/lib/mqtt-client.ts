@@ -1,6 +1,7 @@
 import mqtt, { MqttClient } from 'mqtt';
 
-const MQTT_BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
+const MQTT_BROKER_URL =
+  process.env.NEXT_PUBLIC_MQTT_URL || 'ws://localhost:8083/mqtt';
 
 let client: MqttClient | null = null;
 
