@@ -85,6 +85,22 @@ class AutomationTests(unittest.TestCase):
             assert thread is not None
             thread.join(timeout=2.0)
 
+    def test_raw_camera_relay_status(self) -> None:
+        import urllib.request
+        stop_event = threading.Event()
+        relay = ss.start_raw_camera_relay("http://127.0.0.1:65500/stream", stop_event, port=0)
+        self.assertIsNotNone(relay)
+        server, bound_port = relay  # type: ignore[misc]
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{bound_port}/", timeout=2.0) as resp:
+                self.assertEqual(resp.status, 200)
+                body = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(body["mode"], "raw-relay")
+        finally:
+            stop_event.set()
+            server.shutdown()
+            server.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,11 +17,13 @@ Quy trinh tu dong:
 from __future__ import annotations
 
 import argparse
+import http.server
 import json
 import os
 import platform
 import shutil
 import socket
+import socketserver
 import subprocess
 import sys
 import threading
@@ -287,24 +289,100 @@ def ensure_timescale_hypertable() -> None:
     )
 
 
+def probe_esp32_cam_stream(host: str) -> str | None:
+    """Kiem tra ESP32-CAM qua /status (khong giu ket noi stream), tra ve URL :81/stream neu san sang."""
+    try:
+        req = urllib.request.Request(f"http://{host}/status", method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                port = int(data.get("streamPort") or 81)
+                if data.get("cameraReady", True):
+                    return f"http://{host}:{port}/stream"
+    except Exception:
+        pass
+    return None
+
+
 def resolve_ai_source(cli_source: str | None, cam_ip: str | None, allow_webcam: bool) -> str | None:
     if cli_source is not None:
         return cli_source
 
-    candidates: list[str] = []
     for host in filter(None, [cam_ip, os.environ.get("CAMERA_IP"), "swiftlet-cam.local"]):
+        stream_url = probe_esp32_cam_stream(host)
+        if stream_url:
+            return stream_url
         for url in (f"http://{host}:81/stream", f"http://{host}/stream", f"http://{host}/mjpeg/1"):
-            if url not in candidates:
-                candidates.append(url)
-
-    for url in candidates:
-        code = http_status(url, timeout=1.5)
-        if code is not None and code < 400:
-            return url
+            code = http_status(url, timeout=1.5)
+            if code is not None and code < 400:
+                return url
 
     if allow_webcam:
         return "0"
     return None
+
+
+class _ThreadingHttpServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def start_raw_camera_relay(
+    upstream_url: str,
+    stop_event: threading.Event,
+    host: str = "127.0.0.1",
+    port: int = 8090,
+) -> tuple[http.server.HTTPServer, int] | None:
+    """
+    Khi chua co ai/models/best.pt, mo HTTP proxy MJPEG on-demand tai :8090/stream
+    de nut 'Mo video AI' tren Dashboard xem duoc luong ESP32-CAM truc tiep.
+    """
+    class RelayHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if not self.path.startswith("/stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"mode": "raw-relay", "upstream": upstream_url}).encode("utf-8"))
+                return
+
+            try:
+                with urllib.request.urlopen(upstream_url, timeout=5) as upstream:
+                    ctype = upstream.headers.get("Content-Type", "multipart/x-mixed-replace")
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    while not stop_event.is_set():
+                        chunk = upstream.read(8192)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as exc:
+                try:
+                    self.send_error(502, f"Upstream camera error: {exc}")
+                except OSError:
+                    pass
+
+        def log_message(self, *_args) -> None:
+            pass
+
+    try:
+        server = _ThreadingHttpServer((host, port), RelayHandler)
+        bound_port = int(server.server_address[1])
+    except OSError as exc:
+        print(f"[CAM] Khong mo duoc cong {host}:{port} ({exc}).")
+        return None
+
+    def serve() -> None:
+        server.serve_forever(poll_interval=0.5)
+
+    threading.Thread(target=serve, name="raw-cam-relay", daemon=True).start()
+    return server, bound_port
 
 
 def print_check_report(net: dict[str, object]) -> None:
@@ -465,14 +543,26 @@ def main() -> int:
                 return 1
             print("[FE] FrontEnd san sang tai http://localhost:3000")
 
-        # 6. AI Edge (:8090)
+        # 6. AI Edge / Live Camera Stream (:8090)
         ai_running = False
+        cam_relay_server: http.server.HTTPServer | None = None
         if not args.no_ai:
             model_exists = (ROOT_DIR / "ai" / "models" / "best.pt").exists()
+            ai_source = resolve_ai_source(args.ai_source, cam_ip, args.ai_webcam)
             if not model_exists:
-                print("[AI] Chua co ai/models/best.pt -> bo qua AI Edge (Dashboard & IoT van chay day du).")
+                if ai_source and str(ai_source).startswith(("http://", "https://")):
+                    if not tcp_open("127.0.0.1", 8090, timeout=0.5):
+                        relay = start_raw_camera_relay(str(ai_source), stop_event)
+                        if relay is not None:
+                            cam_relay_server = relay[0]
+                            ai_running = True
+                            print(f"[CAM] Chua co ai/models/best.pt -> da bat xem camera tho tai http://127.0.0.1:8090/stream (nguon: {ai_source})")
+                    else:
+                        ai_running = True
+                        print(f"[CAM] Cong :8090 dang co luong stream san | Camera tho: {ai_source}")
+                else:
+                    print("[AI] Chua co ai/models/best.pt va chua thay camera tren LAN -> bo qua AI/Camera (Dashboard & IoT van chay day du).")
             else:
-                ai_source = resolve_ai_source(args.ai_source, cam_ip, args.ai_webcam)
                 if not ai_source:
                     print("[AI] Chua thay luong ESP32-CAM tren LAN -> bo qua AI Edge (chay --ai-webcam neu muon test bang webcam).")
                 else:
@@ -524,6 +614,12 @@ def main() -> int:
     finally:
         stop_event.set()
         if not args.no_wait:
+            if "cam_relay_server" in locals() and cam_relay_server is not None:
+                try:
+                    cam_relay_server.shutdown()
+                    cam_relay_server.server_close()
+                except Exception:
+                    pass
             for p in managed_procs:
                 terminate_process_tree(p)
 

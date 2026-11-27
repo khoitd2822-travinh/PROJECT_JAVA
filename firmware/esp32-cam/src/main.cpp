@@ -57,7 +57,9 @@ static void saveRuntimeConfig() {
 }
 
 esp_err_t initCamera() {
-    camera_config_t config;
+    Serial.printf("[CAM] PSRAM=%s (%lu bytes)\n", psramFound() ? "YES" : "NO", static_cast<unsigned long>(ESP.getPsramSize()));
+
+    camera_config_t config = {};
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
     config.pin_d0 = Y2_GPIO_NUM;
@@ -78,16 +80,21 @@ esp_err_t initCamera() {
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
+    config.sccb_i2c_port = 0;
+    config.jpeg_buffer_size = 0;
 
     if (psramFound()) {
         config.frame_size = DEFAULT_FRAME_SIZE;
         config.jpeg_quality = JPEG_QUALITY;
         config.fb_count = FB_COUNT;
+        config.fb_location = CAMERA_FB_IN_PSRAM;
         config.grab_mode = CAMERA_GRAB_LATEST;
     } else {
         config.frame_size = FRAMESIZE_QVGA;
         config.jpeg_quality = 12;
         config.fb_count = 1;
+        config.fb_location = CAMERA_FB_IN_DRAM;
+        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     }
 
     esp_err_t err = esp_camera_init(&config);
@@ -202,7 +209,7 @@ static esp_err_t flash_handler(httpd_req_t *req) {
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
-    char html[960];
+    char html[1280];
     snprintf(
         html,
         sizeof(html),
