@@ -44,8 +44,8 @@ PROJECT = Path(os.environ.get("SWIFTLET_HOME", HERE.parent))
 DEFAULT_MODEL = next((p for p in (PROJECT / "models" / "best.pt", HERE / "best.pt") if p.exists()),
                      PROJECT / "models" / "best.pt")
 PREDATORS = {"owl", "rat", "snake"}
-# ESP32-CAM (CameraWebServer): trang web o cong 80, LUONG VIDEO o cong 81. Thu lan luot cac duong dan hay gap.
-CAMERA_IP = os.environ.get("CAMERA_IP", "192.168.103.50")
+# ESP32-CAM (CameraWebServer): trang web o cong 80, LUONG VIDEO o cong 81. Ho tro mDNS swiftlet-cam.local hoac CAMERA_IP env.
+CAMERA_IP = os.environ.get("CAMERA_IP", "swiftlet-cam.local")
 CAMERA_URLS = [f"http://{CAMERA_IP}:81/stream", f"http://{CAMERA_IP}/stream", f"http://{CAMERA_IP}/mjpeg/1"]
 COLORS = {"swiftlet": (0, 220, 0), "owl": (0, 0, 255), "rat": (0, 0, 255), "snake": (0, 0, 255)}
 
@@ -152,7 +152,7 @@ def pick_source(arg):
         elif choice == "3":
             return 0, True
         elif choice == "4":
-            u = input("Nhap URL hoac IP (vd 192.168.103.50): ").strip()
+            u = input("Nhap URL hoac IP (vd 192.168.1.50 hoac swiftlet-cam.local): ").strip()
             if u:
                 if not u.lower().startswith(("http://", "https://", "rtsp://")):
                     u = f"http://{u}:81/stream"

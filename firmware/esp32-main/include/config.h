@@ -1,12 +1,31 @@
 #pragma once
 #include <Arduino.h>
 
-// Tự điền, không commit mật khẩu thật.
-constexpr char WIFI_SSID[] = "Haibon7979 T3";
-constexpr char WIFI_PASSWORD[] = "79797979";
+// Cau hinh Wi-Fi / LAN cho may dang build duoc tu dong sinh vao file local bi git-ignore:
+//   firmware/esp32-main/include/config.local.h
+// (sinh boi `pio run` pre-build hook hoac `python firmware/scripts/setup_local_config.py`).
+// Gia tri ben duoi chi la fallback an toan cho Wokwi / CI, khong chua mat khau that.
+#if defined(__has_include)
+#if __has_include("config.local.h")
+#include "config.local.h"
+#endif
+#endif
 
-constexpr char MQTT_HOST[] = "192.168.103.51";
-constexpr uint16_t MQTT_PORT = 1883;
+#ifndef WIFI_SSID
+#define WIFI_SSID "Wokwi-GUEST"
+#endif
+
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
+#endif
+
+#ifndef MQTT_HOST
+#define MQTT_HOST "localhost"
+#endif
+
+#ifndef MQTT_PORT
+#define MQTT_PORT 1883
+#endif
 
 constexpr char BOARD_ID[] = "ESP32_ZONE_1";
 
@@ -19,11 +38,19 @@ constexpr char STATUS_TOPIC[] = "swiftlet/status/1/1";
 // Tạm chỉ dùng Wi-Fi router.
 // Bật lại AP riêng khi cần; không coi việc tắt AP là sửa lỗi nguồn.
 constexpr bool ENABLE_LOCAL_AP = true;
-constexpr char AP_SSID[] = "To yen vippro";
-constexpr char AP_PASSWORD[] = "12345678";
+#ifndef AP_SSID
+#define AP_SSID "SwiftletCare-Zone1"
+#endif
+#ifndef AP_PASSWORD
+#define AP_PASSWORD "swiftlet1234"
+#endif
 
-constexpr char WEB_USER[] = "admin";
-constexpr char WEB_PASSWORD[] = "876543210";
+#ifndef WEB_USER
+#define WEB_USER "admin"
+#endif
+#ifndef WEB_PASSWORD
+#define WEB_PASSWORD "swiftlet1234"
+#endif
 
 constexpr bool BOOT_AUTO = true;
 

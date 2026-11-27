@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <Adafruit_SHT31.h>
 #include <BH1750.h>
@@ -12,6 +14,21 @@
 
 #include "config.h"
 #include "thresholds.h"
+
+Preferences runtimePrefs;
+WiFiUDP discoveryUdp;
+constexpr uint16_t BROKER_DISCOVERY_PORT = 41234;
+
+// Static buffers so PubSubClient::setServer keeps a valid pointer across runtime updates.
+static char cfgWifiSsid[65] = WIFI_SSID;
+static char cfgWifiPassword[65] = WIFI_PASSWORD;
+static char cfgMqttHost[65] = MQTT_HOST;
+static uint16_t cfgMqttPort = MQTT_PORT;
+
+String serialCfgBuffer;
+bool discoveryUdpReady = false;
+unsigned long lastDiscoveryAttempt = 0;
+uint8_t consecutiveMqttFails = 0;
 
 WiFiClient networkClient;
 PubSubClient mqttClient(networkClient);
@@ -82,16 +99,23 @@ int targetIndex(const String &target) {
 }
 
 void writeOutput(int index, bool on) {
-  uint8_t offLevel =
-      OUTPUT_ON_LEVELS[index] == HIGH ? LOW : HIGH;
+  uint8_t targetLevel =
+      on ? OUTPUT_ON_LEVELS[index]
+         : (OUTPUT_ON_LEVELS[index] == HIGH ? LOW : HIGH);
 
-  digitalWrite(
-      OUTPUT_PINS[index],
-      on ? OUTPUT_ON_LEVELS[index] : offLevel
-  );
+  digitalWrite(OUTPUT_PINS[index], targetLevel);
+  delayMicroseconds(20);
 
-  outputStates[index] =
-      digitalRead(OUTPUT_PINS[index]) == OUTPUT_ON_LEVELS[index];
+  // Ghi nhan trang thai theo lenh da xuat ra GPIO latch; neu tai ngoai keo lech
+  // muc dien ap thi chi canh bao Serial thay vi tu reset trang thai ve OFF.
+  outputStates[index] = on;
+  if (digitalRead(OUTPUT_PINS[index]) != targetLevel) {
+    Serial.printf(
+        "[WARN] GPIO %u readback mismatch (target=%u, external load may pull voltage)\n",
+        static_cast<unsigned int>(OUTPUT_PINS[index]),
+        static_cast<unsigned int>(targetLevel)
+    );
+  }
 }
 
 void evaluateAuto() {
@@ -501,6 +525,34 @@ void maintainConnections() {
   }
 
   if (!mqttClient.connected()) {
+    if (strcmp(cfgMqttHost, "localhost") == 0
+        || strcmp(cfgMqttHost, "127.0.0.1") == 0
+        || cfgMqttHost[0] == '\0') {
+      if (now - lastDiscoveryAttempt >= 3000) {
+        lastDiscoveryAttempt = now;
+        IPAddress broadcastIp = WiFi.localIP();
+        IPAddress mask = WiFi.subnetMask();
+        IPAddress subnetBroadcast(
+            broadcastIp[0] | (~mask[0]),
+            broadcastIp[1] | (~mask[1]),
+            broadcastIp[2] | (~mask[2]),
+            broadcastIp[3] | (~mask[3])
+        );
+        if (!discoveryUdpReady) {
+          discoveryUdpReady = discoveryUdp.begin(BROKER_DISCOVERY_PORT);
+        }
+        if (discoveryUdpReady) {
+          discoveryUdp.beginPacket(subnetBroadcast, BROKER_DISCOVERY_PORT);
+          discoveryUdp.print("SWIFTLET_DISCOVER_MQTT");
+          discoveryUdp.endPacket();
+          discoveryUdp.beginPacket(IPAddress(255, 255, 255, 255), BROKER_DISCOVERY_PORT);
+          discoveryUdp.print("SWIFTLET_DISCOVER_MQTT");
+          discoveryUdp.endPacket();
+        }
+      }
+      return;
+    }
+
     if (now - lastMqttAttempt < MQTT_RETRY_MS) return;
     lastMqttAttempt = now;
 
@@ -523,9 +575,32 @@ void maintainConnections() {
     );
 
     if (!connected) {
-      Serial.printf("[MQTT] state=%d\n", mqttClient.state());
+      Serial.printf("[MQTT] state=%d host=%s\n", mqttClient.state(), cfgMqttHost);
+      consecutiveMqttFails++;
+      if (consecutiveMqttFails >= 2 && now - lastDiscoveryAttempt >= 5000) {
+        lastDiscoveryAttempt = now;
+        if (!discoveryUdpReady) {
+          discoveryUdpReady = discoveryUdp.begin(BROKER_DISCOVERY_PORT);
+        }
+        if (discoveryUdpReady) {
+          IPAddress ip = WiFi.localIP();
+          IPAddress mask = WiFi.subnetMask();
+          IPAddress subnetBroadcast(
+              ip[0] | (~mask[0]), ip[1] | (~mask[1]),
+              ip[2] | (~mask[2]), ip[3] | (~mask[3])
+          );
+          discoveryUdp.beginPacket(subnetBroadcast, BROKER_DISCOVERY_PORT);
+          discoveryUdp.print("SWIFTLET_DISCOVER_MQTT");
+          discoveryUdp.endPacket();
+          discoveryUdp.beginPacket(IPAddress(255, 255, 255, 255), BROKER_DISCOVERY_PORT);
+          discoveryUdp.print("SWIFTLET_DISCOVER_MQTT");
+          discoveryUdp.endPacket();
+        }
+      }
       return;
     }
+
+    consecutiveMqttFails = 0;
 
     if (!mqttClient.subscribe(COMMAND_TOPIC, 1)) {
       Serial.println("[MQTT] Subscribe failed");
@@ -601,6 +676,215 @@ void handleWebCommand() {
   );
 }
 
+void copyTruncated(char *dest, size_t maxLen, const char *src) {
+  if (!src) {
+    dest[0] = '\0';
+    return;
+  }
+  strlcpy(dest, src, maxLen);
+}
+
+void loadRuntimeConfig() {
+  copyTruncated(cfgWifiSsid, sizeof(cfgWifiSsid), WIFI_SSID);
+  copyTruncated(cfgWifiPassword, sizeof(cfgWifiPassword), WIFI_PASSWORD);
+  copyTruncated(cfgMqttHost, sizeof(cfgMqttHost), MQTT_HOST);
+  cfgMqttPort = MQTT_PORT;
+
+  if (!runtimePrefs.begin("swiftlet", true)) return;
+  String savedSsid = runtimePrefs.getString("wifi_ssid", "");
+  if (savedSsid.length() > 0) {
+    copyTruncated(cfgWifiSsid, sizeof(cfgWifiSsid), savedSsid.c_str());
+    String savedPass = runtimePrefs.getString("wifi_pass", "");
+    copyTruncated(cfgWifiPassword, sizeof(cfgWifiPassword), savedPass.c_str());
+  }
+  String savedHost = runtimePrefs.getString("mqtt_host", "");
+  if (savedHost.length() > 0) {
+    copyTruncated(cfgMqttHost, sizeof(cfgMqttHost), savedHost.c_str());
+  }
+  uint16_t savedPort = runtimePrefs.getUShort("mqtt_port", 0);
+  if (savedPort > 0) {
+    cfgMqttPort = savedPort;
+  }
+  runtimePrefs.end();
+}
+
+void saveRuntimeConfig() {
+  if (!runtimePrefs.begin("swiftlet", false)) return;
+  runtimePrefs.putString("wifi_ssid", cfgWifiSsid);
+  runtimePrefs.putString("wifi_pass", cfgWifiPassword);
+  runtimePrefs.putString("mqtt_host", cfgMqttHost);
+  runtimePrefs.putUShort("mqtt_port", cfgMqttPort);
+  runtimePrefs.end();
+}
+
+void applyNetworkConfig(bool reconnectWifi) {
+  if (mqttClient.connected()) mqttClient.disconnect();
+  mqttClient.setServer(cfgMqttHost, cfgMqttPort);
+  consecutiveMqttFails = 0;
+  lastMqttAttempt = 0;
+  if (reconnectWifi) {
+    wifiWasConnected = false;
+    lastWifiAttempt = 0;
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.begin(cfgWifiSsid, cfgWifiPassword);
+  }
+}
+
+void pollDiscoveryResponse() {
+  if (!discoveryUdpReady || WiFi.status() != WL_CONNECTED) return;
+  int packetSize = discoveryUdp.parsePacket();
+  if (packetSize <= 0) return;
+
+  char buf[256];
+  int len = discoveryUdp.read(buf, sizeof(buf) - 1);
+  if (len <= 0) return;
+  buf[len] = '\0';
+
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, buf)) return;
+  const char *svc = doc["service"] | "";
+  const char *host = doc["host"] | "";
+  uint16_t port = doc["port"] | 1883;
+  if (strcmp(svc, "swiftlet-emqx") != 0 || host[0] == '\0') return;
+
+  if (strcmp(cfgMqttHost, host) != 0 || cfgMqttPort != port) {
+    copyTruncated(cfgMqttHost, sizeof(cfgMqttHost), host);
+    cfgMqttPort = port;
+    saveRuntimeConfig();
+    applyNetworkConfig(false);
+    Serial.printf("[DISCOVER] Broker %s:%u\n", cfgMqttHost, cfgMqttPort);
+  }
+}
+
+void handleSerialCfgLine(const String &line) {
+  if (!line.startsWith("__SWIFTLET_CFG__:")) return;
+  String jsonStr = line.substring(strlen("__SWIFTLET_CFG__:"));
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, jsonStr)) {
+    Serial.println("__SWIFTLET_ERR__:{\"error\":\"invalid_json\"}");
+    return;
+  }
+
+  const char *cmd = doc["cmd"] | "";
+  if (strcmp(cmd, "IDENTIFY") == 0) {
+    StaticJsonDocument<384> out;
+    out["role"] = "esp32-main";
+    out["boardId"] = BOARD_ID;
+    out["wifiSsid"] = cfgWifiSsid;
+    out["mqttHost"] = cfgMqttHost;
+    out["mqttPort"] = cfgMqttPort;
+    out["wifiConnected"] = (WiFi.status() == WL_CONNECTED);
+    out["ip"] = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "";
+    out["mqttConnected"] = mqttClient.connected();
+    Serial.print("__SWIFTLET_INFO__:");
+    serializeJson(out, Serial);
+    Serial.println();
+    return;
+  }
+
+  if (strcmp(cmd, "RESET_CFG") == 0) {
+    if (runtimePrefs.begin("swiftlet", false)) {
+      runtimePrefs.clear();
+      runtimePrefs.end();
+    }
+    loadRuntimeConfig();
+    applyNetworkConfig(true);
+    Serial.println("__SWIFTLET_OK__:{\"role\":\"esp32-main\",\"reset\":true}");
+    return;
+  }
+
+  bool wifiChanged = false;
+  bool mqttChanged = false;
+  if (doc.containsKey("wifiSsid")) {
+    const char *newSsid = doc["wifiSsid"] | "";
+    if (newSsid[0] != '\0') {
+      if (strcmp(cfgWifiSsid, newSsid) != 0) wifiChanged = true;
+      copyTruncated(cfgWifiSsid, sizeof(cfgWifiSsid), newSsid);
+    }
+  }
+  if (doc.containsKey("wifiPassword")) {
+    const char *newPass = doc["wifiPassword"] | "";
+    if (strcmp(cfgWifiPassword, newPass) != 0) wifiChanged = true;
+    copyTruncated(cfgWifiPassword, sizeof(cfgWifiPassword), newPass);
+  }
+  if (doc.containsKey("mqttHost")) {
+    const char *newHost = doc["mqttHost"] | "";
+    if (newHost[0] != '\0') {
+      if (strcmp(cfgMqttHost, newHost) != 0) mqttChanged = true;
+      copyTruncated(cfgMqttHost, sizeof(cfgMqttHost), newHost);
+    }
+  }
+  if (doc.containsKey("mqttPort")) {
+    uint16_t newPort = doc["mqttPort"] | 1883;
+    if (newPort > 0 && cfgMqttPort != newPort) {
+      cfgMqttPort = newPort;
+      mqttChanged = true;
+    }
+  }
+
+  bool save = doc["save"] | true;
+  if (save) saveRuntimeConfig();
+  if (wifiChanged || mqttChanged || (doc["reconnect"] | false)) {
+    applyNetworkConfig(wifiChanged || (WiFi.status() != WL_CONNECTED));
+  }
+
+  StaticJsonDocument<256> ack;
+  ack["role"] = "esp32-main";
+  ack["saved"] = save;
+  ack["wifiSsid"] = cfgWifiSsid;
+  ack["mqttHost"] = cfgMqttHost;
+  ack["mqttPort"] = cfgMqttPort;
+  Serial.print("__SWIFTLET_OK__:");
+  serializeJson(ack, Serial);
+  Serial.println();
+}
+
+void pollSerialConfig() {
+  while (Serial.available() > 0) {
+    char c = static_cast<char>(Serial.read());
+    if (c == '\r') continue;
+    if (c == '\n') {
+      serialCfgBuffer.trim();
+      if (serialCfgBuffer.length() > 0) {
+        handleSerialCfgLine(serialCfgBuffer);
+      }
+      serialCfgBuffer = "";
+    } else if (serialCfgBuffer.length() < 512) {
+      serialCfgBuffer += c;
+    }
+  }
+}
+
+void handleWebConfig() {
+  if (!webAuthorized()) return;
+  if (server.method() == HTTP_POST) {
+    String s = server.arg("ssid");
+    String p = server.arg("pass");
+    String h = server.arg("host");
+    int pt = server.arg("port").toInt();
+    if (s.length() > 0) copyTruncated(cfgWifiSsid, sizeof(cfgWifiSsid), s.c_str());
+    if (server.hasArg("pass")) copyTruncated(cfgWifiPassword, sizeof(cfgWifiPassword), p.c_str());
+    if (h.length() > 0) copyTruncated(cfgMqttHost, sizeof(cfgMqttHost), h.c_str());
+    if (pt > 0 && pt <= 65535) cfgMqttPort = static_cast<uint16_t>(pt);
+    saveRuntimeConfig();
+    applyNetworkConfig(true);
+    server.send(200, "text/html; charset=utf-8",
+        "<html><body><h3>Saved! Reconnecting...</h3><a href='/'>Back</a></body></html>");
+    return;
+  }
+
+  String page = "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<title>Wi-Fi & MQTT Config</title></head><body style='font-family:Arial;max-width:480px;margin:25px auto'>"
+                "<h3>SwiftletCare — Wi-Fi & MQTT Broker</h3><form method='POST' action='/config'>"
+                "Wi-Fi SSID:<br><input name='ssid' value='" + String(cfgWifiSsid) + "' style='width:100%'><br><br>"
+                "Wi-Fi Password:<br><input name='pass' type='password' placeholder='(giu nguyen neu de trong)' style='width:100%'><br><br>"
+                "MQTT Host:<br><input name='host' value='" + String(cfgMqttHost) + "' style='width:100%'><br><br>"
+                "MQTT Port:<br><input name='port' type='number' value='" + String(cfgMqttPort) + "' style='width:100%'><br><br>"
+                "<button type='submit'>Save & Connect</button></form><p><a href='/'>Dashboard</a></p></body></html>";
+  server.send(200, "text/html; charset=utf-8", page);
+}
+
 void handleWebRoot() {
   if (!webAuthorized()) return;
 
@@ -620,6 +904,7 @@ pre{white-space:pre-wrap}
 </head>
 <body>
 <h2>SwiftletCare — Điều khiển cục bộ</h2>
+<p><a href="/config">Cấu hình Wi-Fi &amp; MQTT Broker</a></p>
 <p id="message"></p>
 <pre id="sensors">Đang tải...</pre>
 <div id="devices"></div>
@@ -735,6 +1020,8 @@ void setup() {
   initializeSensors();
   readSensors();
 
+  loadRuntimeConfig();
+
   WiFi.onEvent(logWiFiEvent);
   WiFi.mode(ENABLE_LOCAL_AP ? WIFI_AP_STA : WIFI_STA);
 
@@ -745,7 +1032,7 @@ void setup() {
   }
 
   WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(cfgWifiSsid, cfgWifiPassword);
 
   bootId = WiFi.macAddress() + "-" + String(esp_random(), HEX);
   webToken = String(esp_random(), HEX)
@@ -753,7 +1040,7 @@ void setup() {
       + String(esp_random(), HEX)
       + String(esp_random(), HEX);
 
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setServer(cfgMqttHost, cfgMqttPort);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setKeepAlive(15);
   mqttClient.setSocketTimeout(1);
@@ -766,6 +1053,8 @@ void setup() {
   server.collectHeaders(headers, 2);
 
   server.on("/", HTTP_GET, handleWebRoot);
+  server.on("/config", HTTP_GET, handleWebConfig);
+  server.on("/config", HTTP_POST, handleWebConfig);
   server.on("/data", HTTP_GET, handleWebData);
   server.on("/control", HTTP_POST, handleWebCommand);
 
@@ -779,6 +1068,8 @@ void setup() {
 }
 
 void loop() {
+  pollSerialConfig();
+  pollDiscoveryResponse();
   server.handleClient();
   maintainConnections();
   retryAcks();
