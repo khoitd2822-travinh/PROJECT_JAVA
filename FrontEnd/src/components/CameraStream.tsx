@@ -1,22 +1,42 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+const DEFAULT_STREAM_URL =
+  process.env.NEXT_PUBLIC_AI_STREAM_URL ||
+  "http://127.0.0.1:8090/stream";
 
 export default function CameraStream({
   fitVideo = false,
 }: {
   fitVideo?: boolean;
 }) {
-  const [inputUrl, setInputUrl] = useState(
-    process.env.NEXT_PUBLIC_AI_STREAM_URL ||
-      "http://127.0.0.1:8090/stream"
-  );
-
+  const [inputUrl, setInputUrl] = useState(DEFAULT_STREAM_URL);
   const [activeUrl, setActiveUrl] = useState("");
+  const [manualStop, setManualStop] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    setActiveUrl(DEFAULT_STREAM_URL);
+  }, []);
+
+  useEffect(() => {
+    if (!reconnecting || manualStop) return;
+    const timer = setTimeout(() => {
+      const target = (inputUrl.trim() || DEFAULT_STREAM_URL);
+      setActiveUrl(target);
+      setRetryCount((n) => n + 1);
+      setReconnecting(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [reconnecting, manualStop, inputUrl]);
+
   function toggleStream() {
-    if (activeUrl) {
+    if (activeUrl || reconnecting) {
+      setManualStop(true);
+      setReconnecting(false);
       setActiveUrl("");
       setError("");
       return;
@@ -29,7 +49,10 @@ export default function CameraStream({
         throw new Error();
       }
 
+      setManualStop(false);
+      setReconnecting(false);
       setError("");
+      setRetryCount((n) => n + 1);
       setActiveUrl(url.toString());
     } catch {
       setError("Địa chỉ video không hợp lệ.");
@@ -41,7 +64,7 @@ export default function CameraStream({
       <h3>Camera AI trực tiếp</h3>
 
       <p className="description">
-        Video có khung nhận diện, vạch đếm và số lượng IN/OUT.
+        Video tự động kết nối từ ESP32-CAM / Edge AI khi mở hệ thống.
       </p>
 
       <div
@@ -51,21 +74,34 @@ export default function CameraStream({
       >
         {activeUrl ? (
           <img
-            key={activeUrl}
+            key={`${activeUrl}#${retryCount}`}
             src={activeUrl}
             alt="Camera nhận diện chim yến"
+            onLoad={() => {
+              setError("");
+              setReconnecting(false);
+            }}
             onError={() => {
               setActiveUrl("");
-              setError(
-                "Không mở được video. Kiểm tra Python AI rồi thử lại."
-              );
+              if (!manualStop) {
+                setReconnecting(true);
+                setError("Đang chờ tín hiệu camera, sẽ tự động kết nối lại...");
+              } else {
+                setError(
+                  "Không mở được video. Kiểm tra ESP32-CAM / start.bat rồi thử lại."
+                );
+              }
             }}
           />
         ) : (
           <div className="placeholder">
             <span aria-hidden="true">◉</span>
-            <strong>Camera đang tắt</strong>
-            <p>Bấm “Mở video AI” để bắt đầu xem.</p>
+            <strong>{reconnecting ? "Đang kết nối camera..." : "Camera đang tắt"}</strong>
+            <p>
+              {reconnecting
+                ? "Hệ thống đang tự kết nối lại luồng video."
+                : "Bấm “Mở video AI” để bắt đầu xem."}
+            </p>
           </div>
         )}
       </div>
@@ -81,15 +117,15 @@ export default function CameraStream({
 
         <button
           type="button"
-          className={activeUrl ? "stop" : ""}
+          className={activeUrl || reconnecting ? "stop" : ""}
           onClick={toggleStream}
         >
-          {activeUrl ? "Dừng xem" : "Mở video AI"}
+          {activeUrl || reconnecting ? "Dừng xem" : "Mở video AI"}
         </button>
       </div>
 
       {activeUrl && (
-        <p className="stream-note">Đang mở luồng video từ AI.</p>
+        <p className="stream-note">Đang phát luồng video camera trực tiếp.</p>
       )}
 
       {error && (
